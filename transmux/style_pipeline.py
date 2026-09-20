@@ -109,6 +109,28 @@ def cached(path):
         return None
 
 
+def evidence_quote(quote, text):
+    """Match typographic differences only; return the exact original source span."""
+    def normalize(value):
+        chars, offsets = [], []
+        punctuation = {'“': '"', '”': '"', '‘': "'", '’': "'"}
+        for index, char in enumerate(value):
+            char = ' ' if char.isspace() else punctuation.get(char, char)
+            if char == ' ' and chars and chars[-1] == ' ':
+                continue
+            chars.append(char)
+            offsets.append(index)
+        return ''.join(chars), offsets
+
+    needle, _ = normalize(quote.strip())
+    haystack, offsets = normalize(text)
+    start = haystack.find(needle)
+    if not needle or start < 0:
+        return None
+    end = start + len(needle)
+    return text[offsets[start]:offsets[end - 1] + 1]
+
+
 def observations(response, batch, target):
     rows = response.get('observations')
     if not isinstance(rows, list) or len(rows) > 8:
@@ -123,12 +145,13 @@ def observations(response, batch, target):
                 or not isinstance(number, int) or not 1 <= number <= len(batch)):
             raise ValueError('风格观察缺少规则或有效原文证据')
         record = batch[number - 1]
-        if not record['style_sample'] or quote not in record['text']:
-            raise ValueError('风格观察的引用未出现在指定样本中')
+        matched = evidence_quote(quote, record['text']) if record['style_sample'] else None
+        if matched is None:
+            raise ValueError(f'第 {len(valid) + 1} 条风格观察的引用未出现在指定样本中（批内段落 {number}）')
         error = guidance_language_error(rule, target, required=True)
         if error:
             raise ValueError('风格观察语言不正确：' + error)
-        valid.append({'text': rule, 'evidence': [{'paragraph': record['paragraph'], 'quote': quote}]})
+        valid.append({'text': rule, 'evidence': [{'paragraph': record['paragraph'], 'quote': matched}]})
     return valid
 
 
@@ -197,21 +220,40 @@ async def extract(worker, job, run, corpus, style):
                      f"文档 {file['name']} · 第 {number}/{len(plans)} 批 · {'复用缓存' if response else '新提取'} · 已完成 {len(completed_files)}/{len(corpus)} 份文档")
         prompt_data = [{'paragraph': i, 'text': r['text'], 'section': r['section'], 'style_sample': r['style_sample']}
                        for i, r in enumerate(batch, 1)]
-        if response is None:
-            response = await call(pid, jid, prefix + term_policy.POLICY +
+        extraction_prompt = (prefix + term_policy.POLICY +
                 '\nRead ALL supplied paragraphs for terms and people. Extract style observations ONLY from style_sample=true '
                 'paragraphs. Do not write a complete style guide. Return up to 8 concise observations, each with a verbatim '
-                'quote and its explicit paragraph number. Describe observed tone, syntax and phrasing, not topic facts. '
+                'quote copied exactly (including punctuation) and its explicit batch-local paragraph number. Never paraphrase evidence. Describe observed tone, syntax and phrasing, not topic facts. '
                 'Do not generalize a single example into an absolute universal rule. If no reliable style evidence exists, '
                 'return observations=[]. Keep meanings, usage, scope, reason and context in the target language. '
                 'Term and person paragraph numbers reference the full supplied list.\n' +
-                json.dumps({'paragraphs': prompt_data}, ensure_ascii=False), schema)
+                json.dumps({'paragraphs': prompt_data}, ensure_ascii=False))
+        if response is None:
+            response = await call(pid, jid, extraction_prompt, schema)
         atomic_write(run / f'style-batch-{number}-response.json', json.dumps(response, ensure_ascii=False))
-        try:
-            found = observations(response, batch, target)
-        except ValueError as exc:
-            cache_path.unlink(missing_ok=True)
-            raise NeedsAttention(str(exc) + '；已完成批次可在重试时复用') from exc
+        validation = []
+        for attempt in range(2):
+            try:
+                found = observations(response, batch, target)
+                break
+            except ValueError as exc:
+                validation.append({'attempt': attempt + 1, 'error': str(exc)})
+                atomic_write(run / f'style-batch-{number}-evidence-validation.json',
+                             json.dumps(validation, ensure_ascii=False, indent=2))
+                cache_path.unlink(missing_ok=True)
+                if attempt:
+                    raise NeedsAttention(str(exc) + '；当前批次自动纠正后仍未通过，已完成批次可在重试时复用') from exc
+                atomic_write(run / f'style-batch-{number}-response-before-repair.json',
+                             json.dumps(response, ensure_ascii=False))
+                worker.phase(job, 'extracting', '纠正风格引用',
+                             f'第 {number}/{len(plans)} 批 · 引用校验未通过，自动纠正一次；已完成批次保留')
+                response = await call(pid, jid,
+                    'The previous attempt failed style observation validation. Return the complete batch JSON again. '
+                    'Check each rule uses the target language and each quote is copied directly from its numbered '
+                    'style_sample=true paragraph. Do not summarize, rewrite, or invent quoted text. '
+                    'Omit observations without direct evidence; preserve valid terms and people extraction.\n' +
+                    extraction_prompt, schema)
+                atomic_write(run / f'style-batch-{number}-response.json', json.dumps(response, ensure_ascii=False))
         texts = [r['text'] for r in batch]
         extracted, report = worker.extracted_terms(response.get('terms'), texts, target)
         extracted, selection = term_policy.screen(extracted, target)
