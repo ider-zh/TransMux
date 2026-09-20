@@ -6,3 +6,4 @@ data/
 .env
 dist/
 build/
+data-v2/

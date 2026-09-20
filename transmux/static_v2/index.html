@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>TransMux · Workspace</title>
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <div id="app">
+      <aside class="sidebar">
+        <a class="brand" href="/">TransMux <span>workspace</span></a
+        ><button id="newWorkspace" class="new-workspace">
+          ＋ New Workspace
+        </button>
+        <div class="eyebrow">工作空间</div>
+        <nav id="workspaces"></nav>
+        <footer>
+          文档工作，从一次对话开始。<br /><span>翻译 · 排版 · 核查</span>
+        </footer>
+      </aside>
+      <main class="conversation">
+        <header>
+          <div>
+            <strong id="workspaceName">欢迎使用 TransMux</strong
+            ><small id="workspaceInfo">新建工作空间，开始处理文档</small>
+          </div>
+          <div class="header-actions">
+            <label id="agentLabel" for="model">模型</label
+            ><select id="model" aria-label="切换模型"></select
+            ><button
+              id="settings"
+              title="工作空间设置"
+              aria-label="工作空间设置"
+            >
+              ⋯
+            </button>
+          </div>
+        </header>
+        <div id="feed" class="feed" aria-live="polite">
+          <div class="welcome">
+            <div class="mark">T</div>
+            <h1>让文档工作，更专注。</h1>
+            <p>上传文档，选择任务。<br />过程在这里展开，成果留在工作空间。</p>
+          </div>
+        </div>
+        <div class="composer-area">
+          <div id="templates" class="templates"></div>
+          <div id="referenceHint" class="hint" hidden>
+            尚未学习参考语料。上传目标语言文档，可先提取翻译风格。
+          </div>
+          <form id="composer">
+            <div id="attachments" class="attachments"></div>
+            <textarea
+              id="prompt"
+              rows="3"
+              placeholder="描述这次想完成的工作…"
+              aria-label="任务要求"
+            ></textarea>
+            <div class="composer-toolbar">
+              <div>
+                <button type="button" id="attach" title="上传附件">
+                  ＋ 附件</button
+                ><button type="button" id="pickFiles">从工作区选择</button
+                ><select id="preset" aria-label="排版预设" hidden>
+                  <option value="original">保留原格式</option>
+                  <option value="jcst">JCST</option>
+                  <option value="ieee-access">IEEE Access</option></select
+                ><button type="button" id="clearTask" hidden>退出任务</button>
+              </div>
+              <button type="submit" id="send" class="primary">开始 ↑</button>
+            </div>
+            <input
+              id="fileInput"
+              type="file"
+              multiple
+              accept=".doc,.docx,.pdf,.txt,.md"
+              hidden
+            />
+          </form>
+          <div class="composer-note" id="scope">
+            仅处理本次附加或明确选中的文件
+          </div>
+        </div>
+      </main>
+      <aside class="workspace">
+        <header>
+          <strong>工作区</strong
+          ><button id="toggleTree" aria-label="折叠文件列表">☰</button>
+        </header>
+        <div id="tree" class="tree">
+          <div class="empty">工作区文件将在这里显示</div>
+        </div>
+        <section id="preview" hidden>
+          <div class="preview-heading">
+            <strong id="previewName"></strong
+            ><button id="closePreview" aria-label="关闭预览">×</button>
+          </div>
+          <div class="preview-toolbar">
+            <button id="renderTab" class="active">预览</button
+            ><button id="sourceTab">原文</button
+            ><button id="historyButton" hidden>历史</button
+            ><button id="saveConfig" class="primary" hidden>保存</button
+            ><a id="download" download>下载 ↗</a>
+          </div>
+          <div id="previewBody"></div>
+        </section>
+      </aside>
+    </div>
+    <dialog id="createDialog">
+      <form id="createForm">
+        <h2>New Workspace</h2>
+        <label
+          >名称<input
+            name="name"
+            required
+            maxlength="100"
+            placeholder="例如：论文英译" /></label
+        ><label
+          >Agent<select name="agent">
+            <option value="codex">Codex</option>
+            <option value="codebuddy">CodeBuddy</option>
+          </select></label
+        ><label
+          >目标语言<select name="target_language">
+            <option value="en">English</option>
+            <option value="zh-CN">简体中文</option>
+          </select></label
+        >
+        <p class="hint">Agent 与目标语言创建后固定；模型可随时调整。</p>
+        <div class="dialog-actions">
+          <button type="button" data-close>取消</button
+          ><button class="primary">创建工作空间</button>
+        </div>
+      </form>
+    </dialog>
+    <dialog id="filesDialog">
+      <h2>选择本次附件</h2>
+      <div id="fileChoices"></div>
+      <div class="dialog-actions"><button data-close>完成</button></div>
+    </dialog>
+    <dialog id="settingsDialog">
+      <h2>工作空间设置</h2>
+      <p>删除将移除这个工作空间的文件与历史。</p>
+      <input
+        id="deleteName"
+        placeholder="输入工作空间全名以确认"
+        aria-label="确认空间名称"
+      />
+      <div class="dialog-actions">
+        <button data-close>返回</button
+        ><button id="deleteWorkspace" class="danger">删除工作空间</button>
+      </div>
+    </dialog>
+    <dialog id="historyDialog">
+      <h2>历史快照</h2>
+      <div id="historyList"></div>
+      <div class="dialog-actions"><button data-close>关闭</button></div>
+    </dialog>
+    <div id="toast" role="alert" hidden></div>
+    <script src="/app.js" type="module"></script>
+  </body>
+</html>

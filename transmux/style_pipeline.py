@@ -150,6 +150,8 @@ async def extract(worker, job, run, corpus, style):
     cache_dir.mkdir(exist_ok=True)
     identity = {'version': VERSION, 'target': target, 'agent': project['agent'],
                 'model': json.loads(job['payload']).get('_model', project.get('model'))}
+    if hasattr(worker, 'style_identity'):
+        identity['skill'] = worker.style_identity(job)
     plans, counts = [], {'included': 0, 'excluded': 0}
     worker.phase(job, 'classifying', '规划语料提取', '识别目标语言、章节和代表性样本；准备缓存')
     for file in corpus:
@@ -172,8 +174,9 @@ async def extract(worker, job, run, corpus, style):
     worker.phase(job, 'planning', '提取计划已就绪',
                  f"{len(corpus)} 份文档 · 预计 {len(plans)} 批 · 复用 {reused} 批 · 新提取 {len(plans) - reused} 批")
     if not plans:
-        await worker.build_index(job, work, corpus, target)
-        raise NeedsAttention(f'没有识别到 {language} 语料，保留已有风格与术语；参考索引已同步')
+        if worker.rag is not None:
+            await worker.build_index(job, work, corpus, target)
+        raise NeedsAttention(f'没有识别到 {language} 语料，保留已有风格与术语')
     schema = object_schema({
         'observations': {'type': 'array', 'maxItems': 8, 'items': object_schema({
             'rule': {'type': 'string', 'maxLength': 600}, 'paragraph': {'type': 'integer'},
@@ -269,11 +272,12 @@ async def extract(worker, job, run, corpus, style):
     except ConfigConflict as exc:
         raise NeedsAttention(str(exc)) from exc
     try:
-        await worker.ensure_index(job, work, corpus, target)
+        if worker.rag is not None:
+            await worker.ensure_index(job, work, corpus, target)
     except Exception as exc:
         raise NeedsAttention(f'风格与术语已更新；参考索引失败：{exc}。仅需重试参考索引，无需重新提取风格。') from exc
     return (f"风格与目标语言术语已更新；{len(corpus)} 份文档，{len(plans)} 批，复用 {reused} 批。"
-            f"新增 {added['terms']} 条术语、{added['people']} 条人名。修正引用 {corrected} 条，跳过 {skipped} 条。参考索引已同步。")
+            f"新增 {added['terms']} 条术语、{added['people']} 条人名。修正引用 {corrected} 条，跳过 {skipped} 条。" + ("参考索引已同步。" if worker.rag is not None else ""))
 
 
 async def synthesize(worker, job, run, findings, requirements, prefix, identity, cache_dir):

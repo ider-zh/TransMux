@@ -63,6 +63,9 @@ def parse_json(text):
     text = text.strip()
     if text.startswith("```"):
         text = text.split("\n", 1)[1].rsplit("```", 1)[0]
+    wrapper = re.fullmatch(r"<StructuredOutput>\s*(.*?)\s*</StructuredOutput>", text, re.S)
+    if wrapper:
+        text = wrapper[1]
     value = json.loads(text)
     if not isinstance(value, dict):
         raise ValueError("Agent 必须返回 JSON 对象")
@@ -138,6 +141,27 @@ class AgentRunner:
         payload = json.loads(job[0]["payload"]) if job else {}
         model = payload.get("_model", project.get("model"))
         args = command(project["agent"], None if isolated else project["session"], schema_path, model)
+        if payload.get('_workspace_v2'):
+            if project['agent'] == 'codebuddy':
+                args = [arg for arg in args if arg != '-y']
+                args[args.index('--permission-mode') + 1] = 'dontAsk'
+                args += ['--tools', 'StructuredOutput,WebSearch,WebFetch' if payload.get('external_research') else 'StructuredOutput',
+                         '--allowedTools', 'StructuredOutput,WebSearch,WebFetch' if payload.get('external_research') else 'StructuredOutput',
+                         '--strict-mcp-config', '--mcp-config', '{"mcpServers":{}}', '--max-turns', '20',
+                         '--include-partial-messages']
+            else:
+                args[args.index('-s') + 1] = 'read-only'
+                # Workspace tasks need built-in search, not the host's unrelated MCP integrations.
+                import tomllib
+                config = Path(os.getenv('CODEX_HOME', str(Path.home() / '.codex'))) / 'config.toml'
+                try:
+                    servers = tomllib.loads(config.read_text()).get('mcp_servers', {})
+                except (OSError, ValueError):
+                    servers = {}
+                for name in servers:
+                    args[1:1] = ['-c', 'mcp_servers.' + name + '.enabled=false']
+        if payload.get("external_research") and project["agent"] == "codex":
+            args.insert(1, "--search")
         proc = await asyncio.create_subprocess_exec(
             *args, cwd=work, stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE, start_new_session=True, limit=4 * 1024 * 1024)
@@ -216,4 +240,8 @@ class AgentRunner:
             raise RuntimeError(f"{project['agent']} 调用失败 (exit={code}): {failure or '请查看进度日志'}")
         if not result:
             raise RuntimeError("Agent 未返回最终结果")
-        return parse_json(result) if schema else result
+        parsed = parse_json(result) if schema else result
+        if schema and payload.get("_workspace_v2"):
+            from jsonschema import validate
+            validate(parsed, schema)
+        return parsed

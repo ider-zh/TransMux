@@ -1,0 +1,101 @@
+"""Browser acceptance for the three-column conversation workspace."""
+import io
+import tempfile
+import threading
+import time
+from unittest.mock import patch
+
+import httpx
+import uvicorn
+from docx import Document
+from playwright.sync_api import sync_playwright
+
+from transmux.v2 import create_v2_app, WorkspaceWorker
+from test_v2 import Runner
+
+
+def main():
+    with tempfile.TemporaryDirectory(prefix='transmux-v2-browser-') as root, patch('transmux.app.availability', lambda: [{'id': 'codex', 'available': True}, {'id': 'codebuddy', 'available': True}]):
+        def factory(store):
+            runner = Runner()
+            runner.store = store
+            return WorkspaceWorker(store, runner)
+        app = create_v2_app(root, factory)
+        server = uvicorn.Server(uvicorn.Config(app, host='127.0.0.1', port=18766, log_level='error'))
+        thread = threading.Thread(target=server.run)
+        thread.start()
+        try:
+            for _ in range(100):
+                try:
+                    if httpx.get('http://127.0.0.1:18766/api/health', trust_env=False).status_code == 200:
+                        break
+                except httpx.ConnectError:
+                    pass
+                time.sleep(.1)
+            with sync_playwright() as playwright:
+                browser = playwright.chromium.launch(executable_path='/usr/bin/google-chrome', headless=True, args=['--no-sandbox'])
+                page = browser.new_page(viewport={'width': 1500, 'height': 980})
+                errors = []
+                page.on('pageerror', lambda e: errors.append(str(e)))
+                page.goto('http://127.0.0.1:18766')
+                page.locator('#newWorkspace').click()
+                page.locator('[name=name]').fill('Research · English')
+                page.locator('#createForm .primary').click()
+                page.wait_for_function("document.querySelector('#workspaceName').textContent==='Research · English'")
+                page.locator('#referenceHint').wait_for(state='visible')
+                doc = Document()
+                doc.add_paragraph('Paris is in Germany.')
+                stream = io.BytesIO()
+                doc.save(stream)
+                page.locator('#fileInput').set_input_files({'name': 'paper.docx', 'mimeType': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'buffer': stream.getvalue()})
+                page.locator('.attachment').wait_for()
+                page.locator('[data-kind=translate]').click()
+                assert '翻译风格' in page.locator('#prompt').input_value()
+                page.locator('#send').click()
+                page.locator('#feed .artifact').first.wait_for(timeout=30000)
+                assert page.locator('.work-status[open]').count() == 0
+                page.locator('#feed .artifact').first.click()
+                page.locator('#preview .doc-paragraph').wait_for()
+                assert 'Paris is in Germany.' in page.locator('#previewBody').inner_text()
+                assert page.locator('#preview').bounding_box()['width'] > 500
+                page.locator('#closePreview').click()
+                page.locator('[data-kind=factcheck]').click()
+                assert '最新译文' in page.locator('#scope').inner_text()
+                page.locator('#send').click()
+                page.locator('[data-accept]').wait_for(timeout=30000)
+                page.locator('[data-accept]').click()
+                page.wait_for_function("document.querySelector('#feed').textContent.includes('修订副本与修改说明已生成')")
+                page.locator('#tree [data-config=requirements]').click()
+                page.locator('#sourceTab').click()
+                page.locator('#configEditor').fill('Use concise English.')
+                page.locator('#saveConfig').click()
+                page.wait_for_function("document.querySelector('#toast').textContent.includes('已保存')")
+                page.locator('#historyButton').click()
+                page.locator('#historyDialog').wait_for(state='visible')
+                assert 'Use concise English.' in page.locator('#historyList').text_content()
+                page.locator('#historyDialog [data-close]').click()
+                page.locator('#tree [data-config=mappings]').click()
+                page.locator('#addRow').click()
+                page.locator('[data-field=original]').fill('人工智能')
+                page.locator('[data-field=translation]').fill('artificial intelligence')
+                page.locator('[data-field=context]').fill('Technical prose')
+                page.locator('#saveConfig').click()
+                page.wait_for_timeout(500)
+                assert '已保存' in page.locator('#toast').inner_text()
+                page.locator('#closePreview').click()
+                assert page.locator('#composer').bounding_box()['y'] + page.locator('#composer').bounding_box()['height'] <= 980
+                assert page.evaluate('document.documentElement.scrollHeight <= innerHeight')
+                page.screenshot(path='/tmp/transmux-v2-desktop.png', full_page=True)
+                assert not errors, errors
+                page.set_viewport_size({'width': 780, 'height': 900})
+                assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
+                page.screenshot(path='/tmp/transmux-v2-tablet.png', full_page=True)
+                browser.close()
+                print('V2 browser acceptance passed: upload, scoped translation, preview, fact report, confirmation, history, terminology table, responsive layout.')
+        finally:
+            server.should_exit = True
+            thread.join(timeout=15)
+
+
+if __name__ == '__main__':
+    main()

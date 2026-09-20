@@ -204,6 +204,8 @@ class Worker:
             return await export_original(self, job, payload)
         work = self.store.workspace(pid)
         run = work / "runs" / jid
+        if payload.get("_document"):
+            run = run / payload["_document"]
         run.mkdir(parents=True, exist_ok=True)
         for name in ("style", "glossary", *terminology.KINDS):
             self.store.snapshot_config(pid, name)
@@ -294,7 +296,7 @@ class Worker:
             elif use_rag:
                 await self.ensure_index(job, work, corpus, target)
             else:
-                self.store.event(pid, jid, "progress", "本次已关闭 RAG，继续使用项目风格与关键词表。")
+                self.store.event(pid, jid, "progress", "使用项目翻译风格与术语规范。" if self.rag is None else "本次已关闭 RAG，继续使用项目风格与关键词表。")
             source_records = await self.blocking(source_blocks, source, blocks)
             planner = ChapterPlanner(source_records)
             alignment, approved_pairs, approved_people = [], [], []
@@ -417,7 +419,7 @@ class Worker:
                         approved_people.append(person)
                 alignment.extend(committed)
                 offset += sum(len(g['source_ids']) for g in committed)
-            output = work / "outputs" / f"{Path(file['name']).stem}-{jid[:8]}.docx"
+            output = work / "outputs" / f"{Path(file['name']).stem}-{jid[:8]}{('-' + payload['_document'][:8]) if payload.get('_document') else ''}.docx"
             self.phase(job, "exporting", "生成 DOCX", "所有段落组已通过审校，正在保存译文", total=len(blocks), completed=offset)
             await self.blocking(export_groups, source, source_records, alignment, output)
             atomic_write(run / 'alignment.json', json.dumps(alignment, ensure_ascii=False, indent=2))

@@ -105,7 +105,7 @@ class ReviewApply(Input):
     decisions: list[ReviewDecision] = Field(max_length=15000)
 
 
-def create_app(root=None, worker_factory=Worker):
+def create_app(root=None, worker_factory=Worker, *, store_factory=Store, configure=None, frontend="static"):
     root = Path(root or os.getenv("TRANSMUX_DATA", "data"))
     uploads = {}
 
@@ -118,7 +118,7 @@ def create_app(root=None, worker_factory=Worker):
         except BlockingIOError:
             lock.close()
             raise RuntimeError("该数据目录已由另一个服务使用；TransMux 必须以单 worker 启动")
-        store = Store(root)
+        store = store_factory(root)
         worker = worker_factory(store)
         app.state.store, app.state.worker = store, worker
         task = asyncio.create_task(worker.loop())
@@ -160,7 +160,8 @@ def create_app(root=None, worker_factory=Worker):
 
     @app.get("/api/health")
     async def health():
-        return {"status": "ok", "workflow_version": 15, "agents": availability(), "embedding": app.state.worker.rag.embeddings.identity}
+        return {"status": "ok", "workflow_version": 20 if frontend == "static_v2" else 15, "agents": availability(),
+                "embedding": app.state.worker.rag.embeddings.identity if app.state.worker.rag else None}
 
     @app.get("/api/layout/capabilities")
     async def layout_capabilities():
@@ -422,7 +423,7 @@ def create_app(root=None, worker_factory=Worker):
     async def artifacts(pid: str):
         work = store().workspace(pid)
         return [{"path": str(p.relative_to(work)), "name": p.name}
-                for p in sorted((work / "runs").glob("*/*"))
+                for p in sorted((work / "runs").rglob("*"))
                 if p.is_file() and not p.is_symlink() and p.suffix in (".json", ".md")]
 
     @app.get("/api/projects/{pid}/artifact/{relative:path}")
@@ -506,7 +507,9 @@ def create_app(root=None, worker_factory=Worker):
                     await asyncio.sleep(1)
         return StreamingResponse(generate(), media_type="text/event-stream", headers={"X-Accel-Buffering": "no"})
 
-    app.mount("/", StaticFiles(directory=Path(__file__).parent / "static", html=True), name="frontend")
+    if configure:
+        configure(app)
+    app.mount("/", StaticFiles(directory=Path(__file__).parent / frontend, html=True), name="frontend")
     return app
 
 

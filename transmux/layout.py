@@ -144,6 +144,14 @@ async def export_original(worker, job, payload):
             original = staging / 'input.docx'
             docx.rename(original)
             details = await worker.blocking(apply_preset, original, docx, template, payload.get('roles'), payload.get('source_sha256'))
+        if details and hasattr(worker, "format_citations"):
+            citation_result = await worker.format_citations(job, docx, payload, details)
+            details["citation_formatting"] = citation_result
+            details["checks"][0]["message"] = '正文保留；仅允许锚定的引文标记与已有参考文献信息的呈现调整。'
+            if citation_result['applied']:
+                details['findings'].append({'id': 'citation_changes', 'message': f"已应用 {citation_result['applied']} 处引文呈现调整，请复核引用关系。"})
+            details["findings"] = [f for f in details["findings"] if f.get("id") != "references_pending"]
+            details["findings"] += [{"id": "citation_review", "message": issue} for issue in citation_result["issues"]]
         output_digest = hashlib.sha256(docx.read_bytes()).hexdigest()
         renderer = None
         if not issues:
