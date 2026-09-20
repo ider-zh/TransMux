@@ -679,12 +679,58 @@ function renderTermTable() {
     renderTermTable();
   };
 }
-listen("newWorkspace", "click", () => $("createDialog").showModal());
+let modelRequest = 0;
+let loadingCreateModels = false;
+async function loadCreateModels(reset = false) {
+  const request = ++modelRequest;
+  const agent = $("createAgent").value;
+  const previous = reset ? "" : $("createModel").value;
+  loadingCreateModels = true;
+  $("createModel").disabled = true;
+  $("refreshCreateModels").disabled = true;
+  $("createForm").querySelector(".primary").disabled = true;
+  $("createModelsStatus").textContent = "正在从 Agent 获取模型…";
+  $("createModel").innerHTML = '<option value="">沿用 Agent 默认模型</option>';
+  try {
+    const data = await api(`/api/agents/${agent}/models?refresh=true`);
+    if (request !== modelRequest || agent !== $("createAgent").value) return;
+    const entries = new Map((data.entries || []).map((m) => [m.id, m.name]));
+    $("createModel").innerHTML += (data.models || [])
+      .map(
+        (id) =>
+          `<option value="${esc(id)}">${esc(entries.get(id) && entries.get(id) !== id ? `${entries.get(id)} · ${id}` : id)}</option>`,
+      )
+      .join("");
+    $("createModel").value = (data.models || []).includes(previous)
+      ? previous
+      : data.default_model || "";
+    $("createModelsStatus").textContent =
+      data.warning || `已从 Agent 获取 ${(data.models || []).length} 个模型`;
+  } catch (error) {
+    if (request === modelRequest)
+      $("createModelsStatus").textContent =
+        "获取失败，可重试或沿用 Agent 默认模型";
+  } finally {
+    if (request === modelRequest) {
+      loadingCreateModels = false;
+      $("createModel").disabled = false;
+      $("refreshCreateModels").disabled = false;
+      $("createForm").querySelector(".primary").disabled = false;
+    }
+  }
+}
+listen("newWorkspace", "click", () => {
+  $("createDialog").showModal();
+  return loadCreateModels(true);
+});
+listen("createAgent", "change", () => loadCreateModels(true));
+listen("refreshCreateModels", "click", () => loadCreateModels());
 document
   .querySelectorAll("[data-close]")
   .forEach((el) => (el.onclick = () => el.closest("dialog").close()));
 listen("createForm", "submit", async (e) => {
   e.preventDefault();
+  if (loadingCreateModels) return;
   const data = Object.fromEntries(new FormData(e.target));
   const p = await api("/api/projects", {
     method: "POST",

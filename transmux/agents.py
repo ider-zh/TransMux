@@ -6,13 +6,11 @@ import shutil
 import signal
 import re
 import subprocess
-from functools import lru_cache
 from pathlib import Path
 
 from dotenv import dotenv_values
 
 
-@lru_cache(maxsize=2)
 def model_choices(agent):
     configured = os.getenv("TRANSMUX_" + agent.upper() + "_MODELS")
     if configured is not None:
@@ -23,7 +21,7 @@ def model_choices(agent):
             models = json.loads(cache.read_text())["models"]
             return [m["slug"] for m in models if m.get("visibility", "list") == "list" and m.get("slug")]
         result = subprocess.run([os.getenv("TRANSMUX_CODEBUDDY_BIN", "codebuddy"), "--help"],
-                                capture_output=True, text=True, timeout=10)
+                                capture_output=True, text=True, timeout=10, env=agent_environment(agent))
         match = re.search(r"Currently supported: \(([^)]+)\)", result.stdout)
         return [m.strip() for m in match[1].split(",")] if match else []
     except (OSError, ValueError, KeyError, subprocess.TimeoutExpired):

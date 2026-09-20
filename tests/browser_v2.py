@@ -1,5 +1,6 @@
 """Browser acceptance for the three-column conversation workspace."""
 import io
+import asyncio
 import tempfile
 import threading
 import time
@@ -14,8 +15,13 @@ from transmux.v2 import create_v2_app, WorkspaceWorker
 from test_v2 import Runner
 
 
+async def available_models(agent):
+    await asyncio.sleep(.6 if agent == 'codex' else .05)
+    return [{'id': agent + '-fresh-model', 'name': agent + ' latest', 'default': True}]
+
+
 def main():
-    with tempfile.TemporaryDirectory(prefix='transmux-v2-browser-') as root, patch('transmux.app.availability', lambda: [{'id': 'codex', 'available': True}, {'id': 'codebuddy', 'available': True}]):
+    with tempfile.TemporaryDirectory(prefix='transmux-v2-browser-') as root, patch('transmux.model_catalog.live_models', available_models), patch('transmux.app.availability', lambda: [{'id': 'codex', 'available': True}, {'id': 'codebuddy', 'available': True}]):
         def factory(store):
             runner = Runner()
             runner.store = store
@@ -40,9 +46,18 @@ def main():
                 page.goto('http://127.0.0.1:18766')
                 page.locator('#newWorkspace').click()
                 page.locator('[name=name]').fill('Research · English')
+                page.locator('#createAgent').select_option('codebuddy')
+                page.wait_for_function("document.querySelector('#createModel').value === 'codebuddy-fresh-model'")
+                page.wait_for_timeout(700)
+                assert page.locator('#createModel option[value=codex-fresh-model]').count() == 0
+                page.locator('#createAgent').select_option('codex')
+                page.wait_for_function("document.querySelector('#createModel').value === 'codex-fresh-model'")
+                page.locator('#refreshCreateModels').click()
+                page.wait_for_function("!document.querySelector('#createModel').disabled")
                 page.locator('#createForm .primary').click()
                 page.wait_for_function("document.querySelector('#workspaceName').textContent==='Research · English'")
                 page.locator('#referenceHint').wait_for(state='visible')
+                page.wait_for_function("document.querySelector('#model').value === 'codex-fresh-model'")
                 doc = Document()
                 doc.add_paragraph('Paris is in Germany.')
                 stream = io.BytesIO()

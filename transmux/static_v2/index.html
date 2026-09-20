@@ -117,7 +117,7 @@
             maxlength="100"
             placeholder="例如：论文英译" /></label
         ><label
-          >Agent<select name="agent">
+          >Agent<select name="agent" id="createAgent">
             <option value="codex">Codex</option>
             <option value="codebuddy">CodeBuddy</option>
           </select></label
@@ -127,6 +127,15 @@
             <option value="zh-CN">简体中文</option>
           </select></label
         >
+        <label
+          >默认模型<select name="model" id="createModel">
+            <option value="">沿用 Agent 默认模型</option>
+          </select></label
+        >
+        <div>
+          <button type="button" id="refreshCreateModels">刷新模型列表</button
+          ><span id="createModelsStatus" class="hint" role="status"></span>
+        </div>
         <p class="hint">Agent 与目标语言创建后固定；模型可随时调整。</p>
         <div class="dialog-actions">
           <button type="button" data-close>取消</button

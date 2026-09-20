@@ -183,7 +183,10 @@ def create_app(root=None, worker_factory=Worker, *, store_factory=Store, configu
         return store().rows("SELECT * FROM projects ORDER BY created")
 
     @app.get("/api/agents/{agent}/models")
-    async def models(agent: Literal["codex", "codebuddy"]):
+    async def models(agent: Literal["codex", "codebuddy"], refresh: bool = False):
+        if refresh:
+            from .model_catalog import model_catalog
+            return await model_catalog(agent)
         return {"models": await asyncio.to_thread(model_choices, agent)}
 
     @app.post("/api/projects", status_code=201)

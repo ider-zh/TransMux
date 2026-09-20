@@ -54,3 +54,9 @@ TRANSMUX_CODEX_HTTP_PROXY=http://192.168.1.230:10808
 ```
 
 This supplies lowercase `http_proxy` only to Codex subprocesses, equivalent to exporting it before launching Codex. It does not modify the backend environment or override CodeBuddy's inherited environment. Optional `HTTPS_PROXY`, `ALL_PROXY`, and `NO_PROXY` suffixes follow the same mapping; CodeBuddy has a separate `TRANSMUX_CODEBUDDY_` prefix. Agent-specific service environment variables override `.env`; empty values explicitly clear inherited proxy settings. Later `.env` edits apply to the next CLI process without restarting the service. Already running CLI processes keep their original environment.
+
+## Model selection at creation
+
+New Workspace includes a default-model selector. Opening it, switching agents, or clicking Refresh queries the selected CLI afresh. The saved choice becomes the workspace model; the existing header can change it later without changing a running job's pinned model. Racing responses from a previously selected agent cannot replace the current selection.
+
+Codex uses the read-only `app-server` initialization and paginated [`model/list`](https://developers.openai.com/codex/app-server/) protocol; CodeBuddy uses its stream-JSON `initialize` / `get_available_models` control protocol. No prompt, translation task or conversation is started. Each lookup receives that agent's configured proxy environment and has a bounded timeout. Failure falls back to the current local Codex cache or CodeBuddy CLI-declared list with an explicit warning and retry button. Administrator model overrides are identified as configured lists. The app no longer keeps the old indefinite model-list cache; freshness ultimately follows the catalog the installed Agent reports.
