@@ -9,6 +9,7 @@ from unittest.mock import patch
 import httpx
 import uvicorn
 from docx import Document
+from starlette.responses import JSONResponse
 from playwright.sync_api import sync_playwright
 
 from transmux.v2 import create_v2_app, WorkspaceWorker
@@ -27,6 +28,15 @@ def main():
             runner.store = store
             return WorkspaceWorker(store, runner)
         app = create_v2_app(root, factory)
+        app.state.delay_upload = False
+        @app.middleware('http')
+        async def delay_upload(request, call_next):
+            if request.url.path.endswith('/attachments') and app.state.delay_upload:
+                await request.body()
+                while app.state.delay_upload:
+                    await asyncio.sleep(.05)
+                return JSONResponse({'detail': '文件过大'}, status_code=413)
+            return await call_next(request)
         server = uvicorn.Server(uvicorn.Config(app, host='127.0.0.1', port=18766, log_level='error'))
         thread = threading.Thread(target=server.run)
         thread.start()
@@ -105,6 +115,38 @@ def main():
                 page.set_viewport_size({'width': 780, 'height': 900})
                 assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
                 page.screenshot(path='/tmp/transmux-v2-tablet.png', full_page=True)
+                # A slow model catalog must not block project contents or retain old DOM.
+                page.set_viewport_size({'width': 1500, 'height': 980})
+                first = page.locator('[data-project].active').get_attribute('data-project')
+                second = page.request.post('http://127.0.0.1:18766/api/projects', data={'name': 'Empty workspace', 'agent': 'codebuddy', 'target_language': 'en'}).json()['id']
+                page.reload()
+                page.locator(f'[data-project="{second}"]').wait_for()
+                held = []
+                page.route('**/api/agents/codebuddy/models', lambda route: held.append(route))
+                page.locator(f'[data-project="{second}"]').click()
+                page.wait_for_function("document.querySelector('#workspaceName').textContent === 'Empty workspace'")
+                page.wait_for_function("document.querySelector('#feed').textContent.includes('从一份文档开始') || !document.querySelector('#feed').textContent.includes('正在加载')")
+                assert 'Paris' not in page.locator('#previewBody').inner_text()
+                assert 'paper.docx' not in page.locator('#tree').inner_text()
+                assert page.locator('.attachment').count() == 0
+                assert held, 'model request should still be pending'
+                held.pop().fulfill(json={'models': ['buddy-test']})
+                # Hold the upload response after transfer; show parsing, and isolate on switch.
+                app.state.delay_upload = True
+                page.locator('#fileInput').set_input_files({'name': 'slow.txt', 'mimeType': 'text/plain', 'buffer': b'Slow document'})
+                page.wait_for_function("document.querySelector('#uploadProgress').textContent.includes('正在解析')")
+                assert page.locator('#uploadProgress progress').get_attribute('value') is None
+                page.locator(f'[data-project="{first}"]').click()
+                page.wait_for_function("document.querySelector('#workspaceName').textContent === 'Research · English'")
+                assert page.locator('#uploadProgress').is_hidden()
+                assert page.locator('#send').is_enabled()
+                app.state.delay_upload = False
+                page.locator(f'[data-project="{second}"]').click()
+                page.wait_for_function("document.querySelector('#uploadProgress').textContent.includes('文件过大')")
+                assert page.locator('#send').is_enabled()
+                if held:
+                    held.pop().fulfill(json={'models': []})
+                assert not errors, errors
                 browser.close()
                 print('V2 browser acceptance passed: upload, scoped translation, preview, fact report, confirmation, history, terminology table, responsive layout.')
         finally:

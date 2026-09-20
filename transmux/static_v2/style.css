@@ -760,3 +760,27 @@ dialog label select {
 .composer-area {
   flex-shrink: 0;
 }
+
+#uploadProgress {
+  max-height: 150px;
+  overflow: auto;
+  margin: 8px 0;
+}
+.upload-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 4px 12px;
+  font-size: 12px;
+  margin: 8px 0;
+}
+.upload-row span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.upload-row progress {
+  grid-column: 1/-1;
+  width: 100%;
+  height: 6px;
+  accent-color: var(--accent, #2563eb);
+}

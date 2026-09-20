@@ -246,3 +246,20 @@ def test_original_doc_preview_uses_converted_copy_and_keeps_download(tmp_path, m
         url = f"/api/projects/{ids['pid']}/files/{ids['fid']}"
         assert client.get(url + '/preview').json()['paragraphs'] == ['Converted reading content.']
         assert client.get(url + '/download').content == b'original-binary-doc'
+
+
+def test_event_tail_is_bounded_ordered_and_project_scoped(tmp_path, monkeypatch):
+    monkeypatch.setattr('transmux.app.availability', lambda: [{'id': 'codex', 'available': True}])
+    app = create_v2_app(tmp_path, lambda store: WorkspaceWorker(store, Runner()))
+    with TestClient(app) as client:
+        pid = client.post('/api/projects', json={'name': 'Events', 'agent': 'codex'}).json()['id']
+        other = client.post('/api/projects', json={'name': 'Other', 'agent': 'codex'}).json()['id']
+        for i in range(350):
+            client.portal.call(app.state.store.event, pid, None, 'progress', str(i))
+        client.portal.call(app.state.store.event, other, None, 'progress', 'private')
+        rows = client.get(f'/api/projects/{pid}/events?tail=true').json()
+        assert len(rows) == 300
+        assert [r['text'] for r in rows] == [str(i) for i in range(50, 350)]
+        assert client.get(f'/api/projects/{pid}/events').json()[0]['text'] == '0'
+        client.portal.call(app.state.store.event, pid, None, 'progress', 'new')
+        assert [r['text'] for r in client.get(f"/api/projects/{pid}/events?after={rows[-1]['id']}").json()] == ['new']

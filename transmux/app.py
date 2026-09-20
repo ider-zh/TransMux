@@ -486,8 +486,10 @@ def create_app(root=None, worker_factory=Worker, *, store_factory=Store, configu
         return {"status": "cancellation_requested"}
 
     @app.get("/api/projects/{pid}/events")
-    async def events(pid: str, after: int = 0):
+    async def events(pid: str, after: int = 0, tail: bool = False):
         store().project(pid)
+        if tail:
+            return list(reversed(store().rows("SELECT * FROM events WHERE project=? AND id>? ORDER BY id DESC LIMIT 300", (pid, after))))
         return store().rows("SELECT * FROM events WHERE project=? AND id>? ORDER BY id LIMIT 300", (pid, after))
 
     @app.get("/api/projects/{pid}/stream")

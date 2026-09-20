@@ -21,6 +21,10 @@ const state = {
   templates: [],
   busy: false,
   generation: 0,
+  reads: new AbortController(),
+  refreshRequest: 0,
+  previewRequest: 0,
+  uploads: new Map(),
 };
 const labels = {
   style: "提取翻译风格",
@@ -53,6 +57,9 @@ const terminal = new Set([
   "cancelled",
   "interrupted",
 ]);
+function reportError(error) {
+  if (error.name !== "AbortError") toast(error.message);
+}
 function toast(message) {
   $("toast").textContent = message;
   $("toast").hidden = false;
@@ -89,7 +96,7 @@ function listen(id, event, fn) {
     try {
       await fn(e);
     } catch (error) {
-      toast(error.message);
+      reportError(error);
     }
   });
 }
@@ -129,76 +136,123 @@ async function loadProjects() {
     .forEach(
       (el) =>
         (el.onclick = () =>
-          selectProject(el.dataset.project).catch((e) => toast(e.message))),
+          selectProject(el.dataset.project).catch((e) => reportError(e))),
     );
 }
 async function selectProject(pid) {
   if (state.preview?.dirty && !confirm("放弃未保存的编辑？")) return;
-  state.generation++;
-  const generation = state.generation;
+  const generation = ++state.generation;
+  state.reads.abort();
+  state.reads = new AbortController();
+  clearTimeout(refreshTimer);
+  refreshTimer = null;
+  refreshNeeded = false;
   state.stream?.close();
   state.pid = pid;
   state.selected.clear();
   state.events = [];
   state.jobs = [];
   state.files = [];
-  state.preview = null;
+  state.artifacts = [];
+  state.busy = false;
   closePreview(true);
+  document.querySelectorAll("dialog[open]").forEach((el) => el.close());
+  $("feed").innerHTML = '<p class="hint">正在加载工作空间…</p>';
+  $("tree").innerHTML = "";
+  $("referenceHint").hidden = true;
+  $("toast").hidden = true;
   setTask("chat");
+  renderAttachments();
+  renderUploads();
   localStorage.setItem("transmux-v2-workspace", pid);
-  await loadProjects();
+  if (!project()) await loadProjects();
   if (generation !== state.generation) return;
+  document
+    .querySelectorAll("[data-project]")
+    .forEach((el) => el.classList.toggle("active", el.dataset.project === pid));
   const p = project();
   $("workspaceName").textContent = p.name;
-  $("workspaceInfo").textContent =
-    `${p.target_language === "en" ? "English" : "简体中文"} · 单一对话`;
+  const info = `${p.target_language === "en" ? "English" : "简体中文"} · 单一对话`;
+  $("workspaceInfo").textContent = info;
   $("agentLabel").textContent = p.agent;
-  const data = await api(`/api/agents/${p.agent}/models`);
-  if (generation !== state.generation) return;
-  const models = [
-    ...new Set([...(data.models || []), ...(p.model ? [p.model] : [])]),
-  ];
   $("model").innerHTML =
-    '<option value="">Agent 默认模型</option>' +
-    models.map((m) => `<option value="${esc(m)}">${esc(m)}</option>`).join("");
-  $("model").value = p.model || "";
-  await refresh();
+    `<option value="${esc(p.model || "")}">${esc(p.model || "Agent 默认模型")}</option>`;
+  $("model").disabled = true;
+  api(`/api/agents/${p.agent}/models`, { signal: state.reads.signal })
+    .then((data) => {
+      if (generation !== state.generation) return;
+      const models = [
+        ...new Set([...(data.models || []), ...(p.model ? [p.model] : [])]),
+      ];
+      $("model").innerHTML =
+        '<option value="">Agent 默认模型</option>' +
+        models
+          .map((m) => `<option value="${esc(m)}">${esc(m)}</option>`)
+          .join("");
+      $("model").value = p.model || "";
+    })
+    .catch(reportError)
+    .finally(() => {
+      if (generation === state.generation) $("model").disabled = false;
+    });
+  const history = api(base() + "/events?tail=true", {
+    signal: state.reads.signal,
+  });
+  const [, events] = await Promise.all([refresh(), history]);
   if (generation !== state.generation) return;
-  state.stream = new EventSource(base() + "/stream");
+  state.events = events;
+  renderFeed();
+  state.stream = new EventSource(
+    base() + "/stream?after=" + (events.at(-1)?.id || 0),
+  );
   state.stream.onmessage = (e) => {
     if (generation !== state.generation) return;
     const event = JSON.parse(e.data);
-    if (!state.events.some((x) => x.id === event.id)) {
-      state.events.push(event);
-      state.events = state.events.slice(-600);
-    }
-    scheduleRefresh();
+    if (state.events.some((x) => x.id === event.id)) return;
+    state.events.push(event);
+    state.events = state.events.slice(-600);
+    const job = state.jobs.find((j) => j.id === event.job);
+    if (job && event.kind === "phase") job.progress = event.text;
+    if (event.kind === "agent" || (job && event.kind === "phase")) {
+      scheduleRefresh(false);
+    } else scheduleRefresh(true);
+  };
+  state.stream.onopen = () => {
+    if (generation === state.generation) $("workspaceInfo").textContent = info;
   };
   state.stream.onerror = () => {
-    $("workspaceInfo").textContent = "连接正在恢复 · 已保存的任务继续执行";
+    if (generation === state.generation)
+      $("workspaceInfo").textContent = "连接正在恢复 · 已保存的任务继续执行";
   };
-  renderAttachments();
 }
 let refreshTimer;
-function scheduleRefresh() {
+let refreshNeeded = false;
+function scheduleRefresh(fetchData = true) {
+  refreshNeeded ||= fetchData;
   if (refreshTimer) return;
+  const generation = state.generation;
   refreshTimer = setTimeout(() => {
     refreshTimer = null;
-    refresh().catch((e) => toast(e.message));
+    if (generation !== state.generation) return;
+    const needed = refreshNeeded;
+    refreshNeeded = false;
+    if (needed) refresh().catch(reportError);
+    else renderFeed();
   }, 300);
 }
 async function refresh() {
   if (!state.pid) return;
-  const pid = state.pid;
-  const [jobs, files, artifacts] = await Promise.all([
-    api(base() + "/jobs"),
-    api(base() + "/files"),
-    api(base() + "/artifacts"),
+  const generation = state.generation;
+  const request = ++state.refreshRequest;
+  const options = { signal: state.reads.signal };
+  const [jobs, files] = await Promise.all([
+    api(base() + "/jobs", options),
+    api(base() + "/files", options),
   ]);
-  if (pid !== state.pid) return;
+  if (generation !== state.generation || request !== state.refreshRequest)
+    return;
   state.jobs = jobs;
   state.files = files;
-  state.artifacts = artifacts;
   renderFeed();
   renderTree();
   updateScope();
@@ -306,21 +360,21 @@ function renderFeed() {
       (el.onclick = () =>
         api(base() + `/jobs/${el.dataset.cancel}/cancel`, { method: "POST" })
           .then(refresh)
-          .catch((e) => toast(e.message))),
+          .catch((e) => reportError(e))),
   );
   feed
     .querySelectorAll("[data-preview]")
     .forEach(
       (el) =>
         (el.onclick = () =>
-          openFile(el.dataset.preview).catch((e) => toast(e.message))),
+          openFile(el.dataset.preview).catch((e) => reportError(e))),
     );
   feed
     .querySelectorAll("[data-config]")
     .forEach(
       (el) =>
         (el.onclick = () =>
-          openConfig(el.dataset.config).catch((e) => toast(e.message))),
+          openConfig(el.dataset.config).catch((e) => reportError(e))),
     );
   feed.querySelectorAll("[data-accept]").forEach(
     (el) =>
@@ -391,43 +445,71 @@ function renderTree() {
     .join("");
   $("tree").insertAdjacentHTML(
     "beforeend",
-    `<details data-group="任务记录"><summary>任务记录 · ${state.artifacts.length}</summary>${state.artifacts.map((a) => `<div class="file-row"><button data-artifact="${esc(a.path)}" title="${esc(a.path)}">▤ ${esc(a.name)} · ${esc(a.path.split("/")[1].slice(0, 6))}</button></div>`).join("")}</details>`,
+    `<details data-group="任务记录"><summary>任务记录 · 点击加载</summary>${state.artifacts.map((a) => `<div class="file-row"><button data-artifact="${esc(a.path)}" title="${esc(a.path)}">▤ ${esc(a.name)} · ${esc(a.path.split("/")[1].slice(0, 6))}</button></div>`).join("")}</details>`,
   );
-  $("tree")
-    .querySelectorAll("[data-artifact]")
-    .forEach(
-      (el) =>
-        (el.onclick = async () => {
+  const records = $("tree").querySelector('[data-group="任务记录"]');
+  records.ontoggle = async () => {
+    if (!records.open || records.dataset.loaded) return;
+    records.dataset.loaded = "true";
+    const generation = state.generation;
+    try {
+      const artifacts = await api(base() + "/artifacts", {
+        signal: state.reads.signal,
+      });
+      if (generation !== state.generation || !records.isConnected) return;
+      records.querySelector("summary").textContent =
+        `任务记录 · ${artifacts.length}`;
+      records.querySelectorAll(".file-row").forEach((el) => el.remove());
+      for (const a of artifacts) {
+        const row = document.createElement("div");
+        row.className = "file-row";
+        const button = document.createElement("button");
+        button.textContent = a.path;
+        button.onclick = async () => {
           if (!previewAllowed()) return;
           try {
-            const url = base() + "/artifact/" + el.dataset.artifact;
-            const response = await fetch(url);
+            const request = ++state.previewRequest;
+            const url = base() + "/artifact/" + a.path;
+            const response = await fetch(url, { signal: state.reads.signal });
             if (!response.ok) throw new Error("无法读取任务文件");
+            const content = await response.text();
+            if (
+              generation !== state.generation ||
+              request !== state.previewRequest
+            )
+              return;
             state.preview = {
-              type: el.dataset.artifact.endsWith(".md") ? "md" : "json",
-              content: await response.text(),
-              name: el.dataset.artifact.split("/").pop(),
+              type: a.path.endsWith(".md") ? "md" : "json",
+              content,
+              name: a.name,
               download: url,
             };
             showPreview();
           } catch (e) {
-            toast(e.message);
+            reportError(e);
           }
-        }),
-    );
+        };
+        row.append(button);
+        records.append(row);
+      }
+    } catch (e) {
+      delete records.dataset.loaded;
+      reportError(e);
+    }
+  };
   $("tree")
     .querySelectorAll("[data-file]")
     .forEach(
       (el) =>
         (el.onclick = () =>
-          openFile(el.dataset.file).catch((e) => toast(e.message))),
+          openFile(el.dataset.file).catch((e) => reportError(e))),
     );
   $("tree")
     .querySelectorAll("[data-config]")
     .forEach(
       (el) =>
         (el.onclick = () =>
-          openConfig(el.dataset.config).catch((e) => toast(e.message))),
+          openConfig(el.dataset.config).catch((e) => reportError(e))),
     );
   $("tree")
     .querySelectorAll("[data-pick]")
@@ -446,9 +528,11 @@ function renderTree() {
           if (!confirm("删除这份参考语料？下次更新风格将排除它的观察。"))
             return;
           try {
+            const generation = state.generation;
             await api(base() + "/files/" + el.dataset.remove, {
               method: "DELETE",
             });
+            if (generation !== state.generation) return;
             state.selected.delete(el.dataset.remove);
             await refresh();
             renderAttachments();
@@ -522,10 +606,12 @@ function showPreview() {
 }
 async function openFile(id) {
   if (!previewAllowed()) return;
-  const pid = state.pid;
+  const generation = state.generation;
+  const request = ++state.previewRequest;
   const file = state.files.find((f) => f.id === id);
   const data = await api(base() + `/files/${id}/preview`);
-  if (pid !== state.pid) return;
+  if (generation !== state.generation || request !== state.previewRequest)
+    return;
   state.preview = {
     ...data,
     name: file.name,
@@ -535,9 +621,11 @@ async function openFile(id) {
 }
 async function openConfig(name) {
   if (!previewAllowed()) return;
-  const pid = state.pid;
+  const generation = state.generation;
+  const request = ++state.previewRequest;
   const data = await api(base() + `/config/${name}`);
-  if (pid !== state.pid) return;
+  if (generation !== state.generation || request !== state.previewRequest)
+    return;
   state.preview = {
     ...data,
     type: ["terms", "mappings", "people"].includes(name) ? "json" : "md",
@@ -550,7 +638,9 @@ async function openConfig(name) {
 }
 function closePreview(force = false) {
   if (!force && !previewAllowed()) return;
+  state.previewRequest++;
   state.preview = null;
+  $("previewBody").replaceChildren();
   $("preview").hidden = true;
   $("app").classList.remove("preview-open");
   $("tree").hidden = false;
@@ -742,11 +832,14 @@ listen("createForm", "submit", async (e) => {
 });
 listen("model", "change", async () => {
   if (!state.pid) return;
+  const current = project();
+  const generation = state.generation;
   const p = await api(base(), {
     method: "PATCH",
     body: JSON.stringify({ model: $("model").value }),
   });
-  Object.assign(project(), p);
+  Object.assign(current, p);
+  if (generation !== state.generation) return;
   toast("模型已更新，运行中任务继续使用原模型");
 });
 listen("settings", "click", () => {
@@ -770,32 +863,93 @@ listen("attach", "click", () => {
   if (!state.pid) throw new Error("请先创建工作空间");
   $("fileInput").click();
 });
-listen("fileInput", "change", async (e) => {
-  if (state.busy) return;
-  const pid = state.pid;
-  state.busy = true;
-  $("send").disabled = true;
-  try {
-    for (const file of e.target.files) {
-      const data = new FormData();
-      data.append("file", file);
-      toast(`正在上传 ${file.name}`);
-      const result = await api(`/api/projects/${pid}/attachments`, {
-        method: "POST",
-        body: data,
-      });
-      if (pid === state.pid) {
-        state.files.unshift(result);
-        state.selected.set(result.id, "document");
-        renderAttachments();
+function renderUploads() {
+  const batch = state.uploads.get(state.pid);
+  $("send").disabled = state.busy || !!batch?.active;
+  $("attach").disabled = !!batch?.active;
+  $("uploadProgress").hidden = !batch;
+  $("uploadProgress").innerHTML = (batch?.items || [])
+    .map(
+      (item) =>
+        `<div class="upload-row"><span>${esc(item.name)}</span><span>${esc(item.status)}</span><progress aria-label="${esc(item.name)} 上传进度" max="100" ${item.percent === null ? "" : `value="${item.percent}"`}></progress></div>`,
+    )
+    .join("");
+}
+function uploadFile(pid, file, item) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", `/api/projects/${pid}/attachments`);
+    const paint = () => {
+      if (pid === state.pid) renderUploads();
+    };
+    xhr.upload.onprogress = (e) => {
+      item.percent = e.lengthComputable
+        ? Math.floor((e.loaded / e.total) * 100)
+        : null;
+      item.status =
+        item.percent === null ? "正在上传" : `正在上传 ${item.percent}%`;
+      paint();
+    };
+    xhr.upload.onload = () => {
+      item.percent = null;
+      item.status = "上传完成，正在解析文档…";
+      paint();
+    };
+    xhr.onload = () => {
+      let data;
+      try {
+        data = JSON.parse(xhr.responseText);
+      } catch {
+        reject(new Error("服务器返回了无法读取的响应"));
+        return;
       }
+      if (xhr.status >= 200 && xhr.status < 300) resolve(data);
+      else
+        reject(
+          new Error(typeof data.detail === "string" ? data.detail : "上传失败"),
+        );
+    };
+    xhr.onerror = () => reject(new Error("网络中断，请检查文件区后重试"));
+    xhr.onabort = () => reject(new Error("上传已取消"));
+    const data = new FormData();
+    data.append("file", file);
+    xhr.send(data);
+  });
+}
+listen("fileInput", "change", async (e) => {
+  const pid = state.pid,
+    generation = state.generation;
+  const files = Array.from(e.target.files);
+  e.target.value = "";
+  if (!pid || state.uploads.get(pid)?.active || !files.length) return;
+  const batch = {
+    active: true,
+    items: files.map((f) => ({ name: f.name, status: "等待上传", percent: 0 })),
+  };
+  state.uploads.set(pid, batch);
+  renderUploads();
+  try {
+    for (const [i, file] of files.entries()) {
+      const item = batch.items[i];
+      try {
+        const result = await uploadFile(pid, file, item);
+        item.status = "已保存";
+        item.percent = 100;
+        if (generation === state.generation) {
+          state.files.unshift(result);
+          state.selected.set(result.id, "document");
+          renderAttachments();
+        }
+      } catch (error) {
+        item.status = `失败：${error.message}`;
+        item.percent = 0;
+      }
+      if (pid === state.pid) renderUploads();
     }
     if (pid === state.pid) await refresh();
-    toast("附件已保存至工作空间");
   } finally {
-    state.busy = false;
-    $("send").disabled = false;
-    e.target.value = "";
+    batch.active = false;
+    if (pid === state.pid) renderUploads();
   }
 });
 listen("pickFiles", "click", () => {
@@ -828,7 +982,8 @@ listen("clearTask", "click", () => setTask("chat"));
 listen("composer", "submit", async (e) => {
   e.preventDefault();
   if (!state.pid) throw new Error("请先创建工作空间");
-  if (state.busy) return;
+  if (state.busy || state.uploads.get(state.pid)?.active) return;
+  const generation = state.generation;
   state.busy = true;
   $("send").disabled = true;
   try {
@@ -847,14 +1002,17 @@ listen("composer", "submit", async (e) => {
       method: "POST",
       body: JSON.stringify(payload),
     });
+    if (generation !== state.generation) return;
     state.selected.clear();
     renderAttachments();
     setTask("chat");
     await refresh();
     $("feed").scrollTop = $("feed").scrollHeight;
   } finally {
-    state.busy = false;
-    $("send").disabled = false;
+    if (generation === state.generation) {
+      state.busy = false;
+      renderUploads();
+    }
   }
 });
 listen("toggleTree", "click", () => {
@@ -871,13 +1029,16 @@ listen("saveConfig", "click", async () => {
     method: "PUT",
     body: JSON.stringify({ content: p.content, revision: p.revision }),
   });
+  if (state.preview !== p) return;
   Object.assign(p, data, { dirty: false });
   renderPreview(p.source, false);
   toast("已保存并创建历史快照");
 });
 listen("historyButton", "click", async () => {
   const p = state.preview;
-  const rows = await api(base() + `/config/${p.config}/history`);
+  const url = base();
+  const rows = await api(url + `/config/${p.config}/history`);
+  if (state.preview !== p) return;
   $("historyList").innerHTML = rows
     .map(
       (row) =>
@@ -891,13 +1052,13 @@ listen("historyButton", "click", async () => {
         (el.onclick = async () => {
           try {
             const data = await api(
-              base() +
-                `/config/${p.config}/history/${el.dataset.restore}/restore`,
+              url + `/config/${p.config}/history/${el.dataset.restore}/restore`,
               {
                 method: "POST",
                 body: JSON.stringify({ revision: p.revision }),
               },
             );
+            if (state.preview !== p) return;
             Object.assign(p, data, { dirty: false });
             $("historyDialog").close();
             renderPreview(p.source, false);
@@ -944,4 +1105,4 @@ async function start() {
       state.projects.some((p) => p.id === saved) ? saved : state.projects[0].id,
     );
 }
-start().catch((e) => toast(e.message));
+start().catch((e) => reportError(e));
