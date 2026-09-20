@@ -35,10 +35,12 @@ Agent capability restrictions do not make the entire host a multi-tenant sandbox
 
 ## Validation
 
-- Full pre-final regression: 166 tests passed; subsequent focused v2 suite: 6 tests passed (including real artifact publication paths).
+- Full pre-final regression: 166 tests passed; subsequent focused v2 suite: 7 tests passed (including real artifact publication paths).
 - New tests cover scoped attachments, no RAG, immutable fact-check correction versions, stale report confirmation, evidence fallback, reference enrollment, citation constraints, all three layout presets and chat formatting.
 - `tests/browser_v2.py` covers the three columns, attachments, translation, preview, report confirmation, editable history, terminology tables, composer anchoring and responsive width.
 - `scripts/test_live_v2.py` exercises real Codex/CodeBuddy with synthetic text, keeping acceptance data under ignored `build/`.
 - LAN/Tailnet health and cross-origin rejection were checked; v1 remained healthy and v2 started with zero workspaces.
 
 Real LibreOffice validation generated DOCX/PDF with all three presets and converted a binary DOC fixture back to DOCX under `build/v2-layout-4yjedcae/`.
+
+Live acceptance records: CodeBuddy `hy3` completed translation and web-sourced fact checking in `build/v2-codebuddy-wpob238v/`; Codex `gpt-5.6-luna` completed both in `build/v2-codex-ckpvfr08/`. A later Codex check with inherited host MCP servers disabled still encountered intermittent model-catalog and built-in web transport timeouts; these are surfaced in work details. Agent output is not a substitute for reviewing the cited evidence.

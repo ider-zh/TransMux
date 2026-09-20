@@ -522,7 +522,8 @@ def configure(app):
                 raise ValueError('文本预览超过 5 MB，请下载查看')
             return {'type': suffix[1:], 'content': path.read_text()}
         if suffix == '.doc':
-            raise ValueError('请打开同时生成的 DOCX 预览')
+            converted = store.safe_path(pid, str(path.with_suffix('.docx').relative_to(store.workspace(pid))))
+            return {'type': 'document', 'paragraphs': await Worker.blocking(extract, converted)}
         return {'type': 'document', 'paragraphs': await Worker.blocking(extract, path)}
 
     @app.get('/api/projects/{pid}/files/{fid}/inline')

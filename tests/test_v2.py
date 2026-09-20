@@ -223,3 +223,26 @@ def test_chat_formatting_creates_a_new_version_without_changing_text(tmp_path):
     assert result.paragraphs[0].runs[0].font.size.pt == 12
     assert path.read_bytes() == original
     store.db.close()
+
+
+def test_original_doc_preview_uses_converted_copy_and_keeps_download(tmp_path, monkeypatch):
+    app = create_v2_app(tmp_path, lambda store: WorkspaceWorker(store, Runner()))
+    with TestClient(app) as client:
+        # Seed inside the application thread so SQLite retains its ownership invariant.
+        @app.get('/fixture-original-doc')
+        async def fixture():
+            store = app.state.store
+            pid = store.create_project('DOC preview', 'codex')['id']
+            path = store.workspace(pid) / 'sources' / 'original.doc'
+            path.write_bytes(b'original-binary-doc')
+            converted = Document()
+            converted.add_paragraph('Converted reading content.')
+            converted.save(path.with_suffix('.docx'))
+            fid = store.add_file(pid, path.name, 'original', path)
+            return {'pid': pid, 'fid': fid}
+        # The static mount consumes unmatched routes; move this test-only fixture before it.
+        app.router.routes.insert(0, app.router.routes.pop())
+        ids = client.get('/fixture-original-doc').json()
+        url = f"/api/projects/{ids['pid']}/files/{ids['fid']}"
+        assert client.get(url + '/preview').json()['paragraphs'] == ['Converted reading content.']
+        assert client.get(url + '/download').content == b'original-binary-doc'
