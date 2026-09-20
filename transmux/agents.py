@@ -9,6 +9,8 @@ import subprocess
 from functools import lru_cache
 from pathlib import Path
 
+from dotenv import dotenv_values
+
 
 @lru_cache(maxsize=2)
 def model_choices(agent):
@@ -31,6 +33,19 @@ def model_choices(agent):
 def availability():
     return [{"id": name, "available": bool(shutil.which(os.getenv("TRANSMUX_" + name.upper() + "_BIN", name)))}
             for name in ("codex", "codebuddy")]
+
+
+def agent_environment(agent):
+    """Load operator-owned settings, never a document workspace's .env or shell code."""
+    config_path = Path(os.getenv('TRANSMUX_ENV_FILE', str(Path(__file__).resolve().parent.parent / '.env')))
+    settings = dotenv_values(config_path, interpolate=False)
+    child = os.environ.copy()
+    for name in ('http_proxy', 'https_proxy', 'all_proxy', 'no_proxy'):
+        key = f'TRANSMUX_{agent.upper()}_{name.upper()}'
+        value = os.environ.get(key, settings.get(key))
+        if value is not None:
+            child[name] = value
+    return child
 
 
 def command(agent, session, schema_path=None, model=None):
@@ -163,7 +178,8 @@ class AgentRunner:
         if payload.get("external_research") and project["agent"] == "codex":
             args.insert(1, "--search")
         proc = await asyncio.create_subprocess_exec(
-            *args, cwd=work, stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
+            *args, cwd=work, env=agent_environment(project["agent"]),
+            stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE, start_new_session=True, limit=4 * 1024 * 1024)
         result = ""
         failure = None

@@ -44,3 +44,13 @@ Agent capability restrictions do not make the entire host a multi-tenant sandbox
 Real LibreOffice validation generated DOCX/PDF with all three presets and converted a binary DOC fixture back to DOCX under `build/v2-layout-4yjedcae/`.
 
 Live acceptance records: CodeBuddy `hy3` completed translation and web-sourced fact checking in `build/v2-codebuddy-wpob238v/`; Codex `gpt-5.6-luna` completed both in `build/v2-codex-ckpvfr08/`. A later Codex check with inherited host MCP servers disabled still encountered intermittent model-catalog and built-in web transport timeouts; these are surfaced in work details. Agent output is not a substitute for reviewing the cited evidence.
+
+## Agent-specific startup environment
+
+The operator-owned repository `.env` is read for each CLI launch. It is ignored by Git and never sourced as shell code. Set `TRANSMUX_ENV_FILE` to use another explicit configuration path. Do not put this configuration in a document workspace.
+
+```dotenv
+TRANSMUX_CODEX_HTTP_PROXY=http://192.168.1.230:10808
+```
+
+This supplies lowercase `http_proxy` only to Codex subprocesses, equivalent to exporting it before launching Codex. It does not modify the backend environment or override CodeBuddy's inherited environment. Optional `HTTPS_PROXY`, `ALL_PROXY`, and `NO_PROXY` suffixes follow the same mapping; CodeBuddy has a separate `TRANSMUX_CODEBUDDY_` prefix. Agent-specific service environment variables override `.env`; empty values explicitly clear inherited proxy settings. Later `.env` edits apply to the next CLI process without restarting the service. Already running CLI processes keep their original environment.
