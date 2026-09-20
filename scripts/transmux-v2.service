@@ -9,7 +9,7 @@ Environment=TRANSMUX_V2_DATA=/home/ider/workspace/TransMux/data-v2
 Environment=TRANSMUX_ALLOWED_HOSTS=192.168.1.220,127.0.0.1,localhost
 Environment=TRANSMUX_CODEBUDDY_BIN=/home/ider/.bun/bin/codebuddy
 Environment=PATH=/home/ider/.local/bin:/home/ider/.nvm/versions/node/v26.1.0/bin:/home/ider/miniconda3/bin:/usr/local/bin:/usr/bin:/bin:/snap/bin
-ExecStart=/home/ider/miniconda3/bin/python3 -m uvicorn transmux.v2:app --host 192.168.1.220 --port 8766
+ExecStart=/home/ider/miniconda3/bin/python3 -m uvicorn transmux.v2:app --host 192.168.1.220 --port 8765
 UMask=0077
 Restart=on-failure
 RestartSec=5

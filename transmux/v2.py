@@ -551,4 +551,4 @@ app = create_v2_app()
 
 def main():
     import uvicorn
-    uvicorn.run('transmux.v2:app', host=os.getenv('TRANSMUX_HOST', '127.0.0.1'), port=int(os.getenv('PORT', '8766')), workers=1)
+    uvicorn.run('transmux.v2:app', host=os.getenv('TRANSMUX_HOST', '127.0.0.1'), port=int(os.getenv('PORT', '8765')), workers=1)

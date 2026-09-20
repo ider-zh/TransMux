@@ -4,12 +4,12 @@ The new application starts with independent, empty workspaces. It does not migra
 
 ## Run and access
 
-- Entrypoint: `transmux-v2` or `python3 -m uvicorn transmux.v2:app --host 127.0.0.1 --port 8766`.
+- Entrypoint: `transmux-v2` or `python3 -m uvicorn transmux.v2:app --host 127.0.0.1 --port 8765`.
 - Storage: `TRANSMUX_V2_DATA`, default `data-v2/`; v1 remains in `data/`.
-- LAN: http://192.168.1.220:8766
-- Tailnet: http://100.64.156.74:8766 or http://lambdax220.tailed8a37.ts.net:8766
+- LAN: http://192.168.1.220:8765
+- Tailnet: http://100.64.156.74:8765 or http://lambdax220.tailed8a37.ts.net:8765
 - User services: `transmux-v2.service`, `transmux-tailnet-v2.service`.
-- The original app remains on port 8765. Stop the two v2 services to take v2 offline without affecting v1.
+- V2 now owns port 8765. The original app and its Tailnet service are stopped; original data is retained. Port 8766 is no longer served.
 - Historical branch: `archive/v1-2026-09-20` (initial commit `ee9be42`). Development branch: `feat/conversation-workspace-v2`.
 
 ## Interaction and task boundaries
