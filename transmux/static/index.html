@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#f5f4ef">
+  <title>TransMux · 文档翻译工作台</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/app.js" defer></script>
+  <script src="/term-tools.js" defer></script>
+  <script src="/comparison.js" defer></script>
+  <script src="/layout.js" defer></script>
+</head>
+<body>
+  <aside class="sidebar">
+    <a class="brand" href="/" aria-label="TransMux 首页"><span class="brand-mark">T<span>↗</span></span><span>TransMux<small>语言之间，风格如一</small></span></a>
+    <div class="sidebar-label">工作空间 <button id="new-project" class="icon-button" title="创建项目">＋</button></div>
+    <div id="project-list" class="project-list"></div>
+    <nav aria-label="工作台导航">
+      <button class="nav-item selected" data-scroll="corpus" aria-current="location">▧ <span>参考语料</span></button>
+      <button class="nav-item" data-scroll="translation">◫ <span>文档翻译</span></button>
+      <button class="nav-item" data-scroll="knowledge">≋ <span>风格与术语</span></button>
+      <button class="nav-item" data-scroll="library">▤ <span>项目文件</span></button>
+      <button class="nav-item" data-scroll="conversation">↗ <span>Agent 对话</span></button>
+    </nav>
+    <div class="sidebar-bottom"><span class="online-dot"></span><span id="service-status">连接服务中</span><small>轻量编排 · Agent 原生上下文</small></div>
+  </aside>
+  <main>
+    <header><div class="breadcrumb">工作空间 <span>/</span> <b id="breadcrumb-name">新项目</b></div><div class="header-right"><details id="model-menu" class="model-menu"><summary class="pill" id="agent-pill" aria-disabled="true" title="切换项目模型">尚未绑定 Agent</summary><div class="model-popover" role="group" aria-label="切换项目模型"><h2>切换模型</h2><label class="field" for="project-model">Agent 模型<select id="project-model-options" aria-label="选择项目模型"><option value="">沿用 Agent 设置</option><option value="__custom__">自定义模型 ID…</option></select><input id="project-model" maxlength="200" placeholder="输入自定义模型 ID" aria-label="自定义项目模型 ID" hidden></label><button id="save-model" class="secondary">应用模型</button><span id="model-status" class="card-description">运行中的任务保持原模型，新任务开始时生效。</span></div></details><span class="avatar">译</span></div></header>
+    <section id="onboarding" hidden>
+      <div class="onboarding-art">文 <span>↔</span> A</div><p class="eyebrow">WELCOME TO TRANSMUX</p>
+      <h1>让每一份译文，<br>都有你的风格。</h1><p>创建项目，选择你的 Agent。<br>从语料学习，到翻译审校，在一个工作空间完成。</p>
+      <button class="primary" id="start-project">创建第一个项目 <span>↗</span></button>
+      <div class="onboarding-steps"><span>01 · 绑定 Agent</span><span>02 · 沉淀语料</span><span>03 · 翻译与审校</span></div>
+    </section>
+    <p id="deployment-banner" hidden>新版本将在当前任务完成后自动上线。当前任务继续运行，升级后即可使用新的翻译设置。</p>
+    <div id="workspace" hidden>
+      <section class="page-heading"><div><p class="eyebrow">TRANSLATION WORKSPACE</p><h1 id="project-title">翻译工作台</h1><p>让语料成为参考，让风格贯穿每一段译文。</p></div><span class="quiet-tag">项目独立上下文 <span>↗</span></span></section>
+
+      <div class="workspace-grid">
+        <div class="main-column">
+          <section id="corpus" class="card corpus-card" aria-labelledby="corpus-title"><div class="card-heading"><div><span class="section-number">01</span><h2 id="corpus-title">参考语料</h2></div><button class="secondary" id="upload-corpus-button" type="button">＋ 上传语料</button><input type="file" id="corpus-upload" accept=".pdf,.docx,.txt,.md" multiple hidden></div><p class="card-description">可一次选择多个 PDF、DOCX、TXT 或 Markdown 文档，也可分次追加。</p><div id="corpus-summary" class="corpus-summary" role="status"><strong id="corpus-summary-title">正在加载参考语料…</strong><p id="corpus-guidance"></p></div><div id="corpus-list" aria-label="参考语料文档"></div><div class="button-row"><button class="secondary" id="extract-style">✧ 更新风格与术语</button><button class="secondary" id="build-rag" hidden>↻ 重试参考索引</button></div><p id="rag-status" class="index-status">参考索引随风格更新自动同步</p><div class="recall-form"><label class="sr-only" for="recall-query">召回测试文本</label><input id="recall-query" placeholder="输入一段文字，测试语义相似段落…"><button class="text-button" id="test-recall">测试召回 ↗</button></div><div id="recall-results" class="recall-results"></div></section>
+          <section id="translation" class="card workflow" aria-labelledby="translation-title"><div class="card-heading"><div><span class="section-number">02</span><h2 id="translation-title">文档翻译</h2></div><span class="mini-label">TRANSLATE & REVIEW</span></div>
+            <label class="upload-zone" for="source-upload"><span class="upload-icon">↑</span><strong>添加需要翻译的文档</strong><span>点击上传 PDF、DOCX、TXT 或 Markdown · 最大 25 MB</span><input id="source-upload" type="file" accept=".pdf,.docx,.txt,.md" hidden></label>
+            <div class="translation-options"><label class="field">待翻译文档<select id="source-file"><option value="">请先上传文档</option></select></label><label class="field">目标语言<input id="target-language" value="English" readonly aria-label="项目固定目标语言"></label><label class="field rounds">审校上限<select id="review-rounds"><option value="3">3 轮</option><option value="5">5 轮</option><option value="10">10 轮</option></select></label></div>
+            <label class="rag-toggle"><input type="checkbox" id="use-rag" checked role="switch"><span>启用 RAG 参考</span><small>仅召回项目目标语言 · 记住选择</small></label><div class="workflow-footer"><span><span class="small-dot"></span>翻译后自动审校，通过后生成 DOCX</span><button class="primary" id="translate">开始翻译 <span>↗</span></button></div>
+          </section>
+          <section id="knowledge" class="knowledge-grid">
+            <article class="card editor-card"><div class="card-heading"><div><span class="section-number">03</span><h2>翻译风格</h2></div><span class="save-state" id="style-status">已同步</span></div><p class="card-description">从当前语料的代表性段落学习表达风格。直接编辑指南会作为用户要求保留；用户要求优先于自动风格。</p><label class="sr-only" for="style-editor">翻译风格内容</label><textarea id="style-editor" spellcheck="false"></textarea><div class="editor-footer"><span>style.md</span><button class="text-button" data-history="style">历史快照</button><button class="text-button" data-reload="style">重新载入 ↻</button></div><details class="style-requirements"><summary>用户要求（优先保留）</summary><p class="card-description">独立于语料学习。可编辑或清空；旧项目的人工指南会保留在这里。翻译和风格提取均优先遵循这里的要求。清空后可重新提取，以移除旧指南中的相关规则。</p><label class="sr-only" for="requirements-editor">用户风格要求</label><textarea id="requirements-editor" placeholder="例如：优先使用简洁的主动句。请使用项目目标语言填写。" spellcheck="false"></textarea><div class="editor-footer"><span id="requirements-status" class="save-state">已同步</span><button class="text-button" data-history="requirements">历史快照</button><button class="text-button" data-reload="requirements">重新载入 ↻</button></div></details></article>
+            <article class="card editor-card" id="terminology-card"><div class="card-heading"><div><span class="section-number">04</span><h2>术语管理</h2></div><button class="text-button" id="expand-terminology">展开编辑 ↗</button></div><div class="term-toolbar"><input id="term-search" type="search" placeholder="搜索词条、语境或来源" aria-label="搜索术语"><select id="term-filter" aria-label="条目状态"><option value="all">全部状态</option><option value="active">已生效</option><option value="pending">待确认</option><option value="inactive">已停用</option></select><button class="text-button" id="rescreen-terms">按新标准重新筛选</button><button class="text-button" id="preview-rescreen">查看筛选建议</button></div>
+              <div class="term-tabs" role="tablist" aria-label="术语类型"><button id="tab-terms" role="tab" aria-selected="true" aria-controls="panel-terms" data-term-tab="terms">专业术语</button><button id="tab-mappings" role="tab" aria-selected="false" aria-controls="panel-mappings" data-term-tab="mappings">翻译对照</button><button id="tab-people" role="tab" aria-selected="false" aria-controls="panel-people" data-term-tab="people">人名</button></div>
+              <section id="panel-terms" role="tabpanel" aria-labelledby="tab-terms" >
+                <p class="card-description">只收录需要统一的专业表达，限定适用语境；普通词义解释不入库。</p><span class="save-state" id="terms-status">已同步</span>
+                <div id="terms-table" class="term-table-wrap"></div><button class="text-button" data-add-term="terms">＋ 添加条目</button><button class="text-button" data-import-terms="terms">批量导入 / 粘贴表格</button>
+                <details class="term-raw"><summary>高级选项：JSON 编辑</summary><label class="sr-only" for="terms-editor">目标语言术语原文</label><textarea id="terms-editor" spellcheck="false"></textarea></details>
+                <div class="editor-footer"><span>terms.json</span><button class="text-button" data-history="terms">历史快照</button><button class="text-button" data-reload="terms">重新载入 ↻</button></div>
+              </section>
+              <section id="panel-mappings" role="tabpanel" aria-labelledby="tab-mappings" hidden>
+                <p class="card-description">翻译并通过审校后自动积累，也可手动添加。用户指定内容优先。</p><span class="save-state" id="mappings-status">已同步</span>
+                <div id="mappings-table" class="term-table-wrap"></div><button class="text-button" data-add-term="mappings">＋ 添加条目</button><button class="text-button" data-import-terms="mappings">批量导入 / 粘贴表格</button>
+                <details class="term-raw"><summary>高级选项：JSON 编辑</summary><label class="sr-only" for="mappings-editor">翻译对照原文</label><textarea id="mappings-editor" spellcheck="false"></textarea></details>
+                <div class="editor-footer"><span>mappings.json</span><button class="text-button" data-history="mappings">历史快照</button><button class="text-button" data-reload="mappings">重新载入 ↻</button></div>
+              </section>
+              <section id="panel-people" role="tabpanel" aria-labelledby="tab-people" hidden>
+                <p class="card-description">固定人名写法与已确认别名。不确定时保留原文，待确认条目不作为强制翻译规则。</p><span class="save-state" id="people-status">已同步</span>
+                <div id="people-table" class="term-table-wrap"></div><button class="text-button" data-add-term="people">＋ 添加人名</button><button class="text-button" data-import-terms="people">批量导入 / 粘贴表格</button>
+                <details class="term-raw"><summary>高级选项：JSON 编辑</summary><textarea id="people-editor" spellcheck="false" aria-label="人名 JSON"></textarea></details>
+                <div class="editor-footer"><span>人名规则</span><button class="text-button" data-history="people">历史快照</button><button class="text-button" data-reload="people">重新载入 ↻</button></div>
+              </section>
+              <details id="legacy-terms" hidden><summary>查看旧关键词原文（保留档案）</summary><pre id="legacy-terms-content"></pre></details>
+            </article>
+          </section>
+          <section id="library" class="card"><div class="card-heading"><div><span class="section-number">05</span><h2>项目文件</h2></div><span class="mini-label" id="file-count">0 FILES</span></div><details class="layout-entry"><summary>排版与导出</summary><p class="card-description">译文可从下方文件列表进入，也可以上传独立 DOCX 文稿，无需翻译。</p><label class="secondary" for="manuscript-upload">上传 DOCX 文稿<input id="manuscript-upload" type="file" accept=".docx" hidden></label><p id="manuscript-upload-status" role="status"></p></details><div class="file-tabs" role="group" aria-label="文件分类"><button data-file-filter="all">全部文件</button><button class="active" data-file-filter="output">译文</button><button data-file-filter="manuscript">排版文稿</button><button data-file-filter="corpus">语料</button><button data-file-filter="source">原文</button><button data-file-filter="artifacts">任务记录</button></div><div id="file-list" class="file-list"></div></section>
+        </div>
+        <aside class="agent-column" id="conversation"><section class="card agent-card"><div class="agent-heading"><div class="agent-symbol">✳</div><div><h2>Agent 协作</h2><span id="agent-name">项目 Agent</span></div><span class="live-label"><span class="online-dot"></span>LIVE</span></div><section id="active-status" class="active-status" data-state="idle" aria-live="polite"><div class="status-top"><span class="status-indicator"></span><strong id="active-title">准备就绪</strong><span id="active-age"></span></div><p id="active-detail">提交任务后，执行阶段将实时显示在这里。</p><progress id="active-progress" max="1" value="0" hidden></progress><span id="active-count"></span><p id="active-warning" role="status" hidden></p><button id="retry-task" class="text-button" hidden>重试任务 ↻</button></section><div class="queue-summary"><span id="queue-label">准备就绪</span><span title="不同项目可同时运行，当前项目按提交顺序执行">项目内串行 · 跨项目并行</span></div><div id="job-list" class="job-list"></div><div id="messages" class="messages" aria-live="polite"><div class="chat-empty"><span>✳</span><h3>你的翻译搭档，已就位</h3><p>任务进度会显示在这里。<br>也可以直接提出修改要求。</p></div></div><form id="chat-form" class="chat-composer"><label class="sr-only" for="chat-input">向 Agent 发送要求</label><textarea id="chat-input" placeholder="调整译文措辞、微调文档格式…" rows="3" maxlength="20000"></textarea><div><span>Enter 发送 · Shift + Enter 换行</span><button class="send-button" type="submit" aria-label="发送">↑</button></div></form><p class="agent-footnote">新指令进入队列，沿用当前 Agent 上下文</p></section></aside>
+      </div>
+      <details class="workspace-settings"><summary>工作空间设置</summary><p>删除后，该空间的文件、配置、历史和任务记录将从应用中移除，无法在页面恢复。</p><button class="text-button danger-text" id="delete-workspace">删除工作空间…</button></details>
+      <footer>TransMux <span>文档有上下文，翻译有依据。</span><span>WORKSPACE FIRST</span></footer>
+    </div>
+  </main>
+  <dialog id="project-dialog"><form id="project-form"><button type="button" class="dialog-close icon-button" id="close-dialog" aria-label="关闭">×</button><p class="eyebrow">NEW WORKSPACE</p><h2>创建翻译项目</h2><p class="dialog-description">为这个项目选择一个长期协作的 Agent。<br>创建后，项目绑定的 Agent 不可更换。</p><label class="field">项目名称<input id="project-name" required maxlength="100" placeholder="例如：产品技术文档 · 中译英"></label><label class="field project-language">目标语言（创建后不可更改）<select id="create-language"><option value="en" selected>English</option><option value="zh-CN">简体中文</option></select></label><fieldset><legend>选择 Agent</legend><label class="agent-choice"><input type="radio" name="agent" value="codex" checked><span><strong>Codex CLI</strong><small>OpenAI · 原生会话上下文</small></span><span id="codex-availability"></span></label><label class="agent-choice"><input type="radio" name="agent" value="codebuddy"><span><strong>CodeBuddy</strong><small>腾讯 · 原生会话上下文</small></span><span id="codebuddy-availability"></span></label></fieldset><label class="field">模型<select id="create-model-options" aria-label="选择创建项目的模型"><option value="">沿用 Agent 设置</option><option value="__custom__">自定义模型 ID…</option></select><input id="create-model" maxlength="200" placeholder="输入自定义模型 ID" aria-label="自定义新项目模型 ID" hidden></label><p id="create-error" class="error-text"></p><button class="primary wide" type="submit">创建工作空间 <span>↗</span></button></form></dialog>
+  <dialog id="history-dialog"><button class="dialog-close icon-button" id="close-history" aria-label="关闭">×</button><h2 id="history-title">历史快照</h2><p class="dialog-description">预览历史内容，恢复会保留当前版本并生成新的快照。</p><label class="field">选择版本<select id="history-select"></select></label><button class="text-button" id="more-history">加载更早版本</button><pre id="history-preview"></pre><p class="error-text" id="history-error"></p><button class="primary wide" id="restore-history">恢复此版本</button></dialog>
+  <dialog id="delete-workspace-dialog"><form id="delete-workspace-form"><h2>删除工作空间</h2><p class="dialog-description">将删除此空间的全部文档、风格、术语、历史快照与任务记录。此操作无法在页面撤销。</p><p id="delete-workspace-name"></p><label class="field">输入完整工作空间名称以确认<input id="delete-workspace-confirm" autocomplete="off" required></label><p id="delete-workspace-error" class="error-text"></p><div class="button-row"><button type="button" class="secondary" id="cancel-delete-workspace">取消</button><button type="submit" class="primary danger-button" id="confirm-delete-workspace" disabled>确认删除</button></div></form></dialog>
+  <dialog id="comparison-dialog" aria-labelledby="comparison-title">
+    <div class="comparison-shell"><div class="comparison-header"><div><p class="eyebrow">TRANSLATION COMPARISON</p><h2 id="comparison-title">原文与译文对照</h2><p id="comparison-source" class="card-description"></p></div><button id="close-comparison" class="icon-button" aria-label="关闭对照">×</button></div>
+    <div class="comparison-toolbar"><label class="field">译文版本<select id="comparison-version" aria-label="选择对照版本"></select></label><span id="comparison-count"></span><a id="comparison-download" class="secondary" download>下载此版本 DOCX ↓</a></div>
+    <div id="comparison-update" hidden>已有审校通过的新版本。<button id="comparison-view-latest" class="text-button">查看新版本 →</button></div>
+    <p id="comparison-status" role="status"></p><p id="comparison-error" class="error-text" role="alert"></p>
+    <div class="comparison-column-headings"><span>原文</span><span>译文 · 只读对照，可提交段落修改要求</span></div>
+    <div id="comparison-body" tabindex="0" aria-label="原文和译文段落对照"></div></div>
+  </dialog>
+  <dialog id="layout-dialog" aria-labelledby="layout-title">
+    <div class="layout-shell">
+      <div class="comparison-header"><div><p class="eyebrow">LAYOUT & EXPORT</p><h2 id="layout-title">排版与导出</h2><p id="layout-source" class="card-description"></p></div><button id="close-layout" class="icon-button" aria-label="关闭排版与导出">×</button></div>
+      <div class="layout-controls"><label class="field">版式<select id="layout-template"><option value="original">保留原格式</option><option value="ieee-access">IEEE Access · 投稿排版草稿</option><option value="jcst">JCST · 出版排版草稿</option></select></label><p class="layout-note" id="layout-template-note">保留原格式，不修改排版或引文。</p><a id="layout-original" class="secondary" download>原 DOCX ↓</a><button id="layout-generate" class="primary">生成预览与导出版本</button></div>
+      <p id="layout-status" role="status" aria-live="polite"></p><p id="layout-error" class="error-text" role="alert"></p>
+      <div class="layout-navigation"><div class="layout-tabs" role="tablist" aria-label="排版工作区"><button id="layout-tab-preview" role="tab" aria-selected="true" aria-controls="layout-preview" data-layout-panel="preview">PDF 预览</button><button id="layout-tab-structure" role="tab" aria-selected="false" aria-controls="layout-structure" data-layout-panel="structure" tabindex="-1" hidden>文档结构 · 可修正</button><button id="layout-tab-report" role="tab" aria-selected="false" aria-controls="layout-report" data-layout-panel="report" tabindex="-1">检查结果</button></div><label class="field layout-history">导出历史<select id="layout-version"><option value="">尚无导出版本</option></select></label></div>
+      <div class="layout-content">
+        <section id="layout-preview" class="layout-preview" role="tabpanel" aria-labelledby="layout-tab-preview"><p id="layout-empty">点击“生成预览与导出版本”，查看 PDF。原 DOCX 可直接下载。</p><iframe id="layout-pdf" title="导出 PDF 预览" hidden></iframe></section>
+        <section id="layout-structure" role="tabpanel" aria-labelledby="layout-tab-structure" hidden><div class="layout-structure-toolbar"><p class="layout-note">类型调整仅影响下一次排版，不修改正文。请核对标题、作者、摘要和参考文献。</p><button id="layout-confirm-structure" class="secondary">确认当前推测的类型</button></div><div id="layout-structure-list"></div></section>
+        <section id="layout-report" class="layout-report" role="tabpanel" aria-labelledby="layout-tab-report" hidden><div id="layout-checks"><p class="layout-note">生成导出版本后，这里会显示检查结果。</p></div></section>
+      </div>
+      <div class="layout-export-bar"><div id="layout-downloads" class="button-row" hidden><a id="layout-docx" class="secondary" download>DOCX ↓</a><a id="layout-pdf-download" class="secondary" download>PDF ↓</a><a id="layout-manifest" class="text-button" download>检查记录 ↓</a></div><a id="layout-open-pdf" class="text-button" target="_blank" rel="noopener" hidden>在新标签页查看 PDF ↗</a></div>
+    </div>
+  </dialog>
+  <dialog id="terms-expanded" class="term-dialog"><div class="term-dialog-heading"><h2>术语工作台</h2><button id="close-terms-expanded" class="text-button">收起 ×</button></div><div id="term-expansion-body"></div></dialog>
+  <dialog id="term-import-dialog" class="term-dialog"><div class="term-dialog-heading"><h2 id="term-import-title">批量导入</h2><button id="close-term-import" class="text-button">关闭 ×</button></div>
+    <p>从 Excel/WPS 复制表格并粘贴，或上传 XLSX、UTF-8 CSV。上传 Excel 时读取第一张工作表。</p>
+    <div class="button-row"><input type="file" id="term-import-file" accept=".xlsx,.csv,.tsv,.txt" aria-label="上传术语表格"><button class="text-button" id="term-import-template">下载 CSV 模板</button></div>
+    <textarea id="term-import-paste" rows="5" placeholder="粘贴表格，可包含列标题" aria-label="粘贴术语表格"></textarea>
+    <label><input type="checkbox" id="term-import-header" checked>第一行为列标题</label><button class="secondary" id="term-import-parse">读取表格</button>
+    <p id="term-import-info" role="status"></p><div id="term-import-columns"></div><button class="secondary" id="term-import-preview" hidden>生成导入预览</button>
+    <div id="term-import-rows" class="term-preview-rows"></div><p id="term-import-error" role="alert"></p><button class="primary" id="term-import-apply" hidden>确认导入所选条目</button>
+  </dialog>
+  <dialog id="term-review-dialog" class="term-dialog"><div class="term-dialog-heading"><h2>旧条目筛选建议</h2><button id="close-term-review" class="text-button">关闭 ×</button></div><p>勾选需要应用的建议，可修改建议内容。用户指定条目不参与自动筛选；停用后仍保留历史。归入人名的条目将先进入待确认。</p><div id="term-review-items" class="term-preview-rows"></div><p id="term-review-error" role="alert"></p><button id="term-review-apply" class="primary">应用所选建议</button></dialog>
+  <div id="toast" role="status" hidden></div>
+</body>
+</html>

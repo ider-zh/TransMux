@@ -1,0 +1,318 @@
+{
+  "id": "jcst",
+  "version": "2022.06-r1",
+  "name": "JCST · 出版排版草稿",
+  "source_url": "https://wqketang.cn-beijing.oss.aliyuncs.com/office/journal_prod/2022-09-27/e722dd5d-62c0-4b75-b701-4b3811edcfad.docx",
+  "guidelines_url": "https://www.sciopen.com/journal/join_journal/submission_guidelines?id=1574306362798288898&issn=1000-9000",
+  "source_sha256": "c63cedb2026b7cf2df6525fe5559cb559618708245b399d3c80c9bbf936caa75",
+  "verified_on": "2026-09-16",
+  "rules": {
+    "title": {
+      "source_paragraph": 1,
+      "source_style": "1",
+      "p": [
+        "<w:keepNext xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\"/>",
+        "<w:keepLines xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\"/>",
+        "<w:widowControl xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"0\"/>",
+        "<w:snapToGrid xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"0\"/>",
+        "<w:spacing xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:line=\"360\" w:lineRule=\"auto\" w:before=\"360\" w:after=\"240\"/>",
+        "<w:jc xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"left\"/>"
+      ],
+      "r": [
+        "<w:rFonts xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:ascii=\"Times New Roman\" w:hAnsi=\"Times New Roman\" w:cs=\"Times New Roman\" w:eastAsia=\"宋体\"/>",
+        "<w:b xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"1\"/>",
+        "<w:bCs xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"1\"/>",
+        "<w:i xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"0\"/>",
+        "<w:iCs xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"0\"/>",
+        "<w:sz xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"32\"/>",
+        "<w:szCs xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"32\"/>"
+      ]
+    },
+    "authors": {
+      "source_paragraph": 2,
+      "source_style": "2",
+      "p": [
+        "<w:widowControl xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"0\"/>",
+        "<w:snapToGrid xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"0\"/>",
+        "<w:spacing xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:line=\"276\" w:lineRule=\"auto\" w:after=\"120\"/>",
+        "<w:jc xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"left\"/>"
+      ],
+      "r": [
+        "<w:rFonts xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:ascii=\"Times New Roman\" w:hAnsi=\"Times New Roman\" w:cs=\"Times New Roman\" w:eastAsia=\"宋体\"/>",
+        "<w:b xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"0\"/>",
+        "<w:bCs xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"0\"/>",
+        "<w:i xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"0\"/>",
+        "<w:iCs xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"0\"/>",
+        "<w:sz xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"24\"/>",
+        "<w:szCs xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"24\"/>"
+      ]
+    },
+    "affiliation": {
+      "source_paragraph": 3,
+      "source_style": "2",
+      "p": [
+        "<w:widowControl xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"0\"/>",
+        "<w:snapToGrid xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"0\"/>",
+        "<w:spacing xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:line=\"276\" w:lineRule=\"auto\" w:after=\"120\"/>",
+        "<w:jc xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"left\"/>"
+      ],
+      "r": [
+        "<w:rFonts xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:ascii=\"Times New Roman\" w:hAnsi=\"Times New Roman\" w:cs=\"Times New Roman\" w:eastAsia=\"宋体\"/>",
+        "<w:b xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"0\"/>",
+        "<w:bCs xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"0\"/>",
+        "<w:i xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"1\"/>",
+        "<w:iCs xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"1\"/>",
+        "<w:sz xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"24\"/>",
+        "<w:szCs xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"24\"/>"
+      ]
+    },
+    "abstract": {
+      "source_paragraph": 8,
+      "source_style": "a0",
+      "p": [
+        "<w:widowControl xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"0\"/>",
+        "<w:snapToGrid xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"0\"/>",
+        "<w:spacing xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:line=\"360\" w:lineRule=\"auto\"/>",
+        "<w:jc xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"left\"/>"
+      ],
+      "r": [
+        "<w:rFonts xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:ascii=\"Times New Roman\" w:hAnsi=\"Times New Roman\" w:cs=\"Times New Roman\" w:eastAsia=\"宋体\"/>",
+        "<w:b xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"0\"/>",
+        "<w:bCs xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"0\"/>",
+        "<w:i xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"0\"/>",
+        "<w:iCs xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"0\"/>",
+        "<w:sz xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"24\"/>",
+        "<w:szCs xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"24\"/>"
+      ]
+    },
+    "keywords": {
+      "source_paragraph": 9,
+      "source_style": "4",
+      "p": [
+        "<w:widowControl xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"0\"/>",
+        "<w:snapToGrid xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"0\"/>",
+        "<w:spacing xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:line=\"360\" w:lineRule=\"auto\" w:before=\"120\" w:after=\"240\"/>",
+        "<w:jc xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"both\"/>"
+      ],
+      "r": [
+        "<w:rFonts xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:ascii=\"Times New Roman\" w:hAnsi=\"Times New Roman\" w:cs=\"Times New Roman\" w:eastAsia=\"宋体\"/>",
+        "<w:b xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"0\"/>",
+        "<w:bCs xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"0\"/>",
+        "<w:i xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"0\"/>",
+        "<w:iCs xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"0\"/>",
+        "<w:sz xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"24\"/>",
+        "<w:szCs xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"24\"/>"
+      ]
+    },
+    "body": {
+      "source_paragraph": 12,
+      "source_style": "a1",
+      "p": [
+        "<w:widowControl xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"0\"/>",
+        "<w:snapToGrid xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"0\"/>",
+        "<w:spacing xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:line=\"360\" w:lineRule=\"auto\"/>",
+        "<w:ind xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:firstLine=\"420\"/>",
+        "<w:jc xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"both\"/>"
+      ],
+      "r": [
+        "<w:rFonts xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:ascii=\"Times New Roman\" w:hAnsi=\"Times New Roman\" w:cs=\"Times New Roman\" w:eastAsia=\"宋体\"/>",
+        "<w:b xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"0\"/>",
+        "<w:bCs xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"0\"/>",
+        "<w:i xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"0\"/>",
+        "<w:iCs xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"0\"/>",
+        "<w:sz xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"24\"/>",
+        "<w:szCs xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"24\"/>"
+      ]
+    },
+    "heading1": {
+      "source_paragraph": 11,
+      "source_style": "3",
+      "p": [
+        "<w:keepNext xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\"/>",
+        "<w:widowControl xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"0\"/>",
+        "<w:snapToGrid xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"0\"/>",
+        "<w:spacing xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:line=\"360\" w:lineRule=\"auto\" w:before=\"120\" w:after=\"120\"/>",
+        "<w:jc xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"left\"/>"
+      ],
+      "r": [
+        "<w:rFonts xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:ascii=\"Times New Roman\" w:hAnsi=\"Times New Roman\" w:cs=\"Times New Roman\" w:eastAsia=\"宋体\"/>",
+        "<w:b xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"1\"/>",
+        "<w:bCs xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"1\"/>",
+        "<w:i xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"0\"/>",
+        "<w:iCs xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"0\"/>",
+        "<w:sz xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"24\"/>",
+        "<w:szCs xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"24\"/>"
+      ]
+    },
+    "heading2": {
+      "source_paragraph": 17,
+      "source_style": "a0",
+      "p": [
+        "<w:widowControl xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"0\"/>",
+        "<w:snapToGrid xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"0\"/>",
+        "<w:spacing xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:line=\"312\" w:lineRule=\"auto\" w:before=\"165\" w:after=\"45\"/>",
+        "<w:jc xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"left\"/>"
+      ],
+      "r": [
+        "<w:rFonts xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:ascii=\"Times New Roman\" w:hAnsi=\"Times New Roman\" w:cs=\"Times New Roman\" w:eastAsia=\"宋体\"/>",
+        "<w:b xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"1\"/>",
+        "<w:bCs xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"1\"/>",
+        "<w:i xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"0\"/>",
+        "<w:iCs xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"0\"/>",
+        "<w:sz xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"24\"/>",
+        "<w:szCs xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"24\"/>"
+      ]
+    },
+    "heading3": {
+      "source_paragraph": 27,
+      "source_style": "a1",
+      "p": [
+        "<w:widowControl xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"0\"/>",
+        "<w:snapToGrid xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"0\"/>",
+        "<w:spacing xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:line=\"360\" w:lineRule=\"auto\"/>",
+        "<w:ind xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:firstLine=\"0\"/>",
+        "<w:jc xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"both\"/>"
+      ],
+      "r": [
+        "<w:rFonts xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:ascii=\"Times New Roman\" w:hAnsi=\"Times New Roman\" w:cs=\"Times New Roman\" w:eastAsia=\"宋体\"/>",
+        "<w:b xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"0\"/>",
+        "<w:bCs xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"0\"/>",
+        "<w:i xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"1\"/>",
+        "<w:iCs xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"1\"/>",
+        "<w:sz xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"24\"/>",
+        "<w:szCs xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"24\"/>"
+      ]
+    },
+    "reference_heading": {
+      "source_paragraph": 145,
+      "source_style": "a0",
+      "p": [
+        "<w:widowControl xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"0\"/>",
+        "<w:snapToGrid xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"0\"/>",
+        "<w:spacing xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:line=\"360\" w:lineRule=\"auto\"/>",
+        "<w:jc xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"both\"/>"
+      ],
+      "r": [
+        "<w:rFonts xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:ascii=\"Times New Roman\" w:hAnsi=\"Times New Roman\" w:cs=\"Times New Roman\" w:eastAsia=\"宋体\"/>",
+        "<w:b xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"1\"/>",
+        "<w:bCs xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"1\"/>",
+        "<w:i xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"0\"/>",
+        "<w:iCs xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"0\"/>",
+        "<w:sz xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"24\"/>",
+        "<w:szCs xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"24\"/>"
+      ]
+    },
+    "reference": {
+      "source_paragraph": 146,
+      "source_style": "a0",
+      "p": [
+        "<w:widowControl xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"0\"/>",
+        "<w:snapToGrid xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"0\"/>",
+        "<w:spacing xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:line=\"360\" w:lineRule=\"auto\"/>",
+        "<w:jc xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"both\"/>"
+      ],
+      "r": [
+        "<w:rFonts xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:ascii=\"Times New Roman\" w:hAnsi=\"Times New Roman\" w:cs=\"Times New Roman\" w:eastAsia=\"宋体\"/>",
+        "<w:b xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"0\"/>",
+        "<w:bCs xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"0\"/>",
+        "<w:i xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"0\"/>",
+        "<w:iCs xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"0\"/>",
+        "<w:sz xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"24\"/>",
+        "<w:szCs xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"24\"/>"
+      ]
+    },
+    "caption": {
+      "source_paragraph": 82,
+      "source_style": "a1",
+      "p": [
+        "<w:widowControl xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"0\"/>",
+        "<w:snapToGrid xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"0\"/>",
+        "<w:spacing xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:line=\"360\" w:lineRule=\"auto\"/>",
+        "<w:ind xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:firstLine=\"0\"/>",
+        "<w:jc xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"both\"/>"
+      ],
+      "r": [
+        "<w:rFonts xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:ascii=\"Times New Roman\" w:hAnsi=\"Times New Roman\" w:cs=\"Times New Roman\" w:eastAsia=\"宋体\"/>",
+        "<w:b xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"0\"/>",
+        "<w:bCs xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"0\"/>",
+        "<w:i xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"0\"/>",
+        "<w:iCs xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"0\"/>",
+        "<w:sz xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"20\"/>",
+        "<w:szCs xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"20\"/>"
+      ]
+    },
+    "table_caption": {
+      "source_paragraph": 45,
+      "source_style": "11",
+      "p": [
+        "<w:widowControl xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"0\"/>",
+        "<w:snapToGrid xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"0\"/>",
+        "<w:spacing xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:line=\"276\" w:lineRule=\"auto\" w:before=\"120\" w:afterLines=\"50\" w:after=\"170\"/>",
+        "<w:ind xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:left=\"0\" w:firstLine=\"0\"/>",
+        "<w:jc xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"both\"/>"
+      ],
+      "r": [
+        "<w:rFonts xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:ascii=\"Times New Roman\" w:hAnsi=\"Times New Roman\" w:cs=\"Times New Roman\" w:eastAsia=\"宋体\"/>",
+        "<w:b xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"0\"/>",
+        "<w:bCs xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"0\"/>",
+        "<w:i xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"0\"/>",
+        "<w:iCs xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"0\"/>",
+        "<w:sz xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"20\"/>",
+        "<w:szCs xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"20\"/>"
+      ]
+    },
+    "biography": {
+      "source_paragraph": 155,
+      "source_style": "a0",
+      "p": [
+        "<w:widowControl xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"0\"/>",
+        "<w:snapToGrid xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"0\"/>",
+        "<w:spacing xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:line=\"360\" w:lineRule=\"auto\"/>",
+        "<w:jc xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"both\"/>"
+      ],
+      "r": [
+        "<w:rFonts xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:ascii=\"Times New Roman\" w:hAnsi=\"Times New Roman\" w:cs=\"Times New Roman\" w:eastAsia=\"宋体\"/>",
+        "<w:b xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"0\"/>",
+        "<w:bCs xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"0\"/>",
+        "<w:i xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"0\"/>",
+        "<w:iCs xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"0\"/>",
+        "<w:sz xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"24\"/>",
+        "<w:szCs xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"24\"/>"
+      ]
+    },
+    "frontmatter": {
+      "source_paragraph": 6,
+      "source_style": "11",
+      "p": [
+        "<w:widowControl xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"0\"/>",
+        "<w:snapToGrid xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"0\"/>",
+        "<w:spacing xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:line=\"240\" w:lineRule=\"auto\"/>",
+        "<w:ind xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:left=\"0\" w:firstLine=\"0\"/>",
+        "<w:jc xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"left\"/>"
+      ],
+      "r": [
+        "<w:rFonts xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:ascii=\"Times New Roman\" w:hAnsi=\"Times New Roman\" w:cs=\"Times New Roman\" w:eastAsia=\"宋体\"/>",
+        "<w:b xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"0\"/>",
+        "<w:bCs xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"0\"/>",
+        "<w:i xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"0\"/>",
+        "<w:iCs xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"0\"/>",
+        "<w:sz xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"20\"/>",
+        "<w:szCs xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:val=\"20\"/>"
+      ]
+    }
+  },
+  "sections": [
+    [
+      "<w:pgSz xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:w=\"11907\" w:h=\"16840\"/>",
+      "<w:pgMar xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:top=\"1474\" w:right=\"839\" w:bottom=\"765\" w:left=\"839\" w:header=\"964\" w:footer=\"567\" w:gutter=\"0\"/>",
+      "<w:cols xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:space=\"720\"/>",
+      "<w:docGrid xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:type=\"lines\" w:linePitch=\"340\" w:charSpace=\"-1519\"/>"
+    ],
+    [
+      "<w:pgSz xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:w=\"11907\" w:h=\"16840\"/>",
+      "<w:pgMar xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:top=\"1474\" w:right=\"839\" w:bottom=\"765\" w:left=\"839\" w:header=\"964\" w:footer=\"567\" w:gutter=\"0\"/>",
+      "<w:cols xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:num=\"2\" w:space=\"421\"/>",
+      "<w:docGrid xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:type=\"lines\" w:linePitch=\"340\" w:charSpace=\"-1519\"/>"
+    ]
+  ]
+}
