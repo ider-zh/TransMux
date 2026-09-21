@@ -234,10 +234,12 @@ class Worker:
         atomic_write(run / "agent.json", json.dumps({"agent": self.store.project(pid)["agent"],
                      "model": payload.get("_model")}, ensure_ascii=False, indent=2))
         corpus = self.corpus(pid)
+        if payload.get('_style_corpus_ids') is not None:
+            corpus = [f for f in corpus if f['id'] in payload['_style_corpus_ids']]
         target = payload["target_language"]
         language = LANGUAGES[target]
         agent_language = AGENT_LANGUAGES[target]
-        style = (work / "style.md").read_text()
+        style = payload.get("_style_content", (work / "style.md").read_text())
         self.store.ensure_style_requirements(pid)
         requirements = self.store.snapshot_config(pid, "requirements")["content"]
         atomic_write(run / "requirements.md", requirements)

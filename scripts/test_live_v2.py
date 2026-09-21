@@ -28,6 +28,8 @@ async def main(agent, model):
         assert row['state'] == 'succeeded', row
         if kind == 'translate':
             fid = json.loads(row['result'])['documents'][0]['file_id']
+            # Synthetic acceptance fixture: explicitly approve before the downstream test.
+            store.approve_review(pid, store.review_for_file(pid, fid)['id'])
     report = {'agent': agent, 'model': model, 'root': str(root), 'status': 'passed', 'rag': worker.rag}
     (root / 'acceptance.json').write_text(json.dumps(report, ensure_ascii=False, indent=2))
     store.db.close()

@@ -78,6 +78,10 @@ def test_fresh_workspace_scope_fact_followup_and_versions(tmp_path, monkeypatch)
         translated = json.loads(result['result'])['documents'][0]['file_id']
         assert len([f for f in client.get(f'/api/projects/{pid}/files').json() if f['kind'] == 'output']) == 1
         assert any('Use concise English.' in call[2] and 'transmux-translate' in call[2] for call in runner.calls)
+        review = next(r for r in client.get(f'/api/projects/{pid}/reviews').json() if r['file_id'] == translated)
+        assert review['status'] == 'pending'
+        assert client.post(f'/api/projects/{pid}/messages', json={'kind': 'factcheck', 'file_ids': [translated]}).status_code == 409
+        assert client.post(f"/api/projects/{pid}/reviews/{review['id']}/approve").status_code == 200
         check = client.post(f'/api/projects/{pid}/messages', json={'kind': 'factcheck'}).json()
         assert json.loads(check['payload'])['file_ids'] == [translated]
         checked = finished(client, pid, check['id'])

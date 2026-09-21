@@ -84,8 +84,10 @@ def main():
                 assert 'Paris is in Germany.' in page.locator('#previewBody').inner_text()
                 assert page.locator('#preview').bounding_box()['width'] > 500
                 page.locator('#closePreview').click()
+                page.locator('[data-review-approve]').first.click()
+                page.wait_for_function("document.querySelector('#toast').textContent.includes('人工审核通过')")
                 page.locator('[data-kind=factcheck]').click()
-                assert '最新译文' in page.locator('#scope').inner_text()
+                assert '最新已审核译文' in page.locator('#scope').inner_text()
                 page.locator('#send').click()
                 page.locator('[data-accept]').wait_for(timeout=30000)
                 page.locator('[data-accept]').click()
@@ -115,6 +117,37 @@ def main():
                 page.set_viewport_size({'width': 780, 'height': 900})
                 assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
                 page.screenshot(path='/tmp/transmux-v2-tablet.png', full_page=True)
+                page.set_viewport_size({'width': 1500, 'height': 980})
+                # Two independently approved styles require explicit selection; edits target a version.
+                pid = page.locator('[data-project].active').get_attribute('data-project')
+                style_ids = []
+                for name in ['reference-one.docx', 'reference-two.docx']:
+                    page.locator('#fileInput').set_input_files({'name': name, 'mimeType': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'buffer': stream.getvalue()})
+                    page.locator('.attachment').wait_for()
+                    page.locator('[data-kind=style]').click()
+                    page.locator('#send').click()
+                    page.wait_for_function("name => document.querySelector('#reviewCards')?.textContent.includes(name)", arg=name)
+                    reviews = page.request.get(f'http://127.0.0.1:18766/api/projects/{pid}/reviews').json()
+                    review = next(r for r in reviews if r['kind'] == 'style' and r['id'] not in style_ids)
+                    style_ids.append(review['id'])
+                    page.locator(f'[data-review-preview="{review["file_id"]}"]').click()
+                    page.wait_for_function("document.querySelector('#previewName').textContent.includes('待审核草稿')")
+                    page.locator('#closePreview').click()
+                    page.locator(f'[data-review-approve="{review["id"]}"]').click()
+                    page.locator(f'[data-review-approve="{review["id"]}"]').wait_for(state='detached')
+                    page.locator('[data-kind=translate]').click()
+                    if len(style_ids) == 1:
+                        assert page.locator('#styleChoice').input_value() == review['id']
+                        assert page.locator('#styleChoice').is_disabled()
+                assert page.locator('#styleChoice').is_enabled()
+                assert page.locator('#styleChoice option').count() == 3
+                page.locator('#styleChoice').select_option(style_ids[0])
+                assert page.locator('#styleChoice').input_value() == style_ids[0]
+                page.locator(f'#tree [data-file="{review["file_id"]}"]').click()
+                page.locator('#reviseVersion').click()
+                assert '修改对象' in page.locator('#reviewTarget').inner_text()
+                assert page.locator('#clearTask').is_hidden()  # revision uses ordinary chat
+                page.locator('#closePreview').click()
                 # A slow model catalog must not block project contents or retain old DOM.
                 page.set_viewport_size({'width': 1500, 'height': 980})
                 first = page.locator('[data-project].active').get_attribute('data-project')

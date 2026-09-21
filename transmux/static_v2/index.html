@@ -51,6 +51,11 @@
           </div>
           <form id="composer">
             <div id="uploadProgress" aria-live="polite" hidden></div>
+            <div id="reviewTarget" class="hint" hidden></div>
+            <label id="styleChoiceLabel" hidden
+              >翻译风格
+              <select id="styleChoice" aria-label="翻译风格"></select
+            ></label>
             <div id="attachments" class="attachments"></div>
             <textarea
               id="prompt"
@@ -100,6 +105,7 @@
           <div class="preview-toolbar">
             <button id="renderTab" class="active">预览</button
             ><button id="sourceTab">原文</button
+            ><button id="reviseVersion" hidden>修改此版本</button
             ><button id="historyButton" hidden>历史</button
             ><button id="saveConfig" class="primary" hidden>保存</button
             ><a id="download" download>下载 ↗</a>

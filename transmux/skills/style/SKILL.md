@@ -1,6 +1,6 @@
 ---
 name: transmux-style
-description: Extract target-language style observations and selective terminology from attached reference documents.
+description: Extract evidence-backed translation style for human review.
 ---
 
-Infer reusable writing characteristics from evidence, not subject matter. Keep observations scoped to the reference's genre. Extract only terminology needing consistency, ambiguity resolution, or specialized usage; ordinary words do not need glossary entries. Record person names conservatively, without inventing identities. Use the project's target language for all generated guidance. User requirements take precedence over learned style. The harness merges cached observations from the maintained reference set; old generated style is not authoritative evidence.
+Use only explicitly selected reference documents as data. Extract tone, syntax, phrasing and writing conventions in the fixed project target language. Do not extract keywords, technical terms, bilingual mappings or people. Cite exact evidence from eligible samples. Return the requested schema. The harness creates an independent pending style version; do not overwrite existing guidance or approve it on the user's behalf.

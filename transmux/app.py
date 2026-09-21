@@ -420,7 +420,9 @@ def create_app(root=None, worker_factory=Worker, *, store_factory=Store, configu
     @app.get("/api/projects/{pid}/files/{fid}/download")
     async def download(pid: str, fid: str):
         file = store().file(pid, fid)
-        return FileResponse(store().download_path(pid, file), filename=file["name"])
+        review = store().review_for_file(pid, fid) if hasattr(store(), "review_for_file") else None
+        name = ("待审核草稿-" if review and review["status"] == "pending" else "") + file["name"]
+        return FileResponse(store().download_path(pid, file), filename=name)
 
     @app.get("/api/projects/{pid}/artifacts")
     async def artifacts(pid: str):

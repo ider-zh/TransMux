@@ -12,6 +12,8 @@ const state = {
   projects: [],
   files: [],
   artifacts: [],
+  reviews: [],
+  reviewTarget: null,
   jobs: [],
   events: [],
   selected: new Map(),
@@ -37,7 +39,7 @@ const labels = {
 const statuses = {
   queued: "排队等待",
   running: "Agent 正在工作",
-  succeeded: "已完成",
+  succeeded: "Agent 已完成",
   failed: "执行失败",
   needs_attention: "需处理",
   cancelled: "已停止",
@@ -154,6 +156,8 @@ async function selectProject(pid) {
   state.jobs = [];
   state.files = [];
   state.artifacts = [];
+  state.reviews = [];
+  state.reviewTarget = null;
   state.busy = false;
   closePreview(true);
   document.querySelectorAll("dialog[open]").forEach((el) => el.close());
@@ -245,14 +249,17 @@ async function refresh() {
   const generation = state.generation;
   const request = ++state.refreshRequest;
   const options = { signal: state.reads.signal };
-  const [jobs, files] = await Promise.all([
+  const [jobs, files, reviews] = await Promise.all([
     api(base() + "/jobs", options),
     api(base() + "/files", options),
+    api(base() + "/reviews", options),
   ]);
   if (generation !== state.generation || request !== state.refreshRequest)
     return;
   state.jobs = jobs;
   state.files = files;
+  state.reviews = reviews;
+  renderStyleChoice();
   renderFeed();
   renderTree();
   updateScope();
@@ -307,6 +314,7 @@ function renderFeed() {
   if (!state.jobs.length) {
     $("feed").innerHTML =
       '<div class="welcome"><div class="mark">T</div><h1>让文档工作，更专注。</h1><p>上传文档，选择任务。<br>过程在这里展开，成果留在工作空间。</p></div>';
+    renderReviewCards();
     return;
   }
   const feed = $("feed"),
@@ -334,6 +342,10 @@ function renderFeed() {
         (f) => f.path.startsWith(`runs/${job.id}/`) && f.kind !== "source",
       );
       const data = parse(job.result);
+      if (data?.file_id) {
+        const file = state.files.find((f) => f.id === data.file_id);
+        if (file && !files.some((f) => f.id === file.id)) files.push(file);
+      }
       if (data?.documents)
         for (const out of data.documents) {
           const file = state.files.find((f) => f.id === out.file_id);
@@ -344,7 +356,7 @@ function renderFeed() {
           ? progress.title || "Agent 正在工作"
           : statuses[job.state];
       const isActive = !terminal.has(job.state);
-      return `<article class="message user">${esc(payload.message || labels[job.kind])}${(payload.file_ids || []).map((id) => `<div class="hint">▤ ${esc(state.files.find((f) => f.id === id)?.name || "附件")}</div>`).join("")}</article><article class="message assistant"><div class="assistant-label">${esc(project()?.agent || "Agent")} · ${esc(labels[job.kind] || job.kind)}</div><details class="work-status ${job.state}" data-job="${job.id}" ${opened.has(job.id) ? "open" : ""}><summary><span class="dot"></span>${esc(summary)}<span class="elapsed" data-start="${job.created}" data-active="${isActive}">${isActive ? Math.max(0, Math.floor(Date.now() / 1000 - job.created)) + "s" : ""}</span></summary><div class="steps" data-steps="${job.id}">${progress.detail ? `<div class="step">${esc(progress.detail)}</div>` : ""}${events
+      return `<article class="message user">${esc(payload.message || labels[job.kind])}${payload._style_name ? `<div class="hint">使用风格：${esc(payload._style_name)}</div>` : ""}${(payload.file_ids || []).map((id) => `<div class="hint">▤ ${esc(state.files.find((f) => f.id === id)?.name || "附件")}</div>`).join("")}</article><article class="message assistant"><div class="assistant-label">${esc(project()?.agent || "Agent")} · ${esc(labels[job.kind] || job.kind)}</div><details class="work-status ${job.state}" data-job="${job.id}" ${opened.has(job.id) ? "open" : ""}><summary><span class="dot"></span>${esc(summary)}<span class="elapsed" data-start="${job.created}" data-active="${isActive}">${isActive ? Math.max(0, Math.floor(Date.now() / 1000 - job.created)) + "s" : ""}</span></summary><div class="steps" data-steps="${job.id}">${progress.detail ? `<div class="step">${esc(progress.detail)}</div>` : ""}${events
         .filter((e) => detailsText(e))
         .map(
           (e) =>
@@ -352,7 +364,7 @@ function renderFeed() {
         )
         .join(
           "",
-        )}${isActive ? `<button data-cancel="${job.id}">停止任务</button>` : ""}</div></details>${job.result ? `<div class="result">${esc(resultText(job))}</div>` : ""}${files.map((f) => `<button class="artifact" data-preview="${f.id}">▤ ${esc(f.name)} <span>↗</span></button>`).join("")}${job.kind === "style" && job.state === "succeeded" ? '<button class="artifact" data-config="style">▤ 翻译风格.md ↗</button><button class="artifact" data-config="terms">▤ 术语规范.json ↗</button>' : ""}${job.kind === "factcheck" && job.state === "succeeded" && state.jobs[0].id === job.id ? `<button class="primary" data-accept="${job.id}">是，生成修订副本</button>` : ""}</article>`;
+        )}${isActive ? `<button data-cancel="${job.id}">停止任务</button>` : ""}</div></details>${job.result ? `<div class="result">${esc(resultText(job))}</div>` : ""}${files.map((f) => `<button class="artifact" data-preview="${f.id}">▤ ${esc(fileTitle(f))} <span>↗</span></button>`).join("")}${job.kind === "factcheck" && job.state === "succeeded" && state.jobs[0].id === job.id ? `<button class="primary" data-accept="${job.id}">是，生成修订副本</button>` : ""}</article>`;
     })
     .join("");
   feed.querySelectorAll("[data-cancel]").forEach(
@@ -397,10 +409,128 @@ function renderFeed() {
   );
   for (const el of feed.querySelectorAll(".steps"))
     el.scrollTop = positions.get(el.dataset.steps) || 0;
+  renderReviewCards();
   if (bottom) feed.scrollTop = feed.scrollHeight;
 }
+function renderStyleChoice() {
+  const choices = state.reviews.filter(
+    (r) =>
+      r.kind === "style" &&
+      r.status === "approved" &&
+      !state.reviews.some(
+        (n) =>
+          n.root === r.root && n.status === "approved" && n.version > r.version,
+      ),
+  );
+  const previous = $("styleChoice").value;
+  $("styleChoiceLabel").hidden = state.kind !== "translate";
+  $("styleChoice").innerHTML = choices.length
+    ? (choices.length > 1 ? '<option value="">请选择已审核风格</option>' : "") +
+      choices
+        .map(
+          (r) =>
+            `<option value="${r.id}">${esc(r.name)} · v${r.version}</option>`,
+        )
+        .join("")
+    : '<option value="generic">通用翻译风格（系统默认，未经语料学习）</option>';
+  if (choices.some((r) => r.id === previous)) $("styleChoice").value = previous;
+  $("styleChoice").disabled = choices.length <= 1;
+}
+function renderReviewCards() {
+  $("feed").querySelector("#reviewCards")?.remove();
+  const rows = state.reviews.filter((r) => r.status === "pending");
+  if (!rows.length) return;
+  const box = document.createElement("section");
+  box.id = "reviewCards";
+  box.innerHTML =
+    "<h3>待人工审核</h3>" +
+    rows
+      .map(
+        (r) =>
+          `<article class="review-card"><strong>${esc(r.name)} · v${r.version}</strong><p>${r.kind === "style" ? "翻译风格" : "译文草稿"} · 待审核</p><button data-review-preview="${r.file_id}">预览</button> <button data-review-edit="${r.id}">提出修改</button> <button class="primary" data-review-approve="${r.id}">审核通过</button></article>`,
+      )
+      .join("");
+  $("feed").append(box);
+  box
+    .querySelectorAll("[data-review-preview]")
+    .forEach(
+      (el) =>
+        (el.onclick = () =>
+          openFile(el.dataset.reviewPreview).catch(reportError)),
+    );
+  box
+    .querySelectorAll("[data-review-edit]")
+    .forEach((el) => (el.onclick = () => selectReview(el.dataset.reviewEdit)));
+  box.querySelectorAll("[data-review-approve]").forEach(
+    (el) =>
+      (el.onclick = async () => {
+        const generation = state.generation;
+        el.disabled = true;
+        try {
+          await api(base() + `/reviews/${el.dataset.reviewApprove}/approve`, {
+            method: "POST",
+            body: "{}",
+          });
+          if (generation !== state.generation) return;
+          await refresh();
+          toast("该版本已人工审核通过");
+        } catch (e) {
+          reportError(e);
+          el.disabled = false;
+        }
+      }),
+  );
+}
+function selectReview(id) {
+  const row = state.reviews.find((r) => r.id === id);
+  if (!row) return;
+  setTask("chat");
+  state.selected.clear();
+  state.reviewTarget = id;
+  if (row.kind === "translation") state.selected.set(row.file_id, "document");
+  renderAttachments();
+  $("reviewTarget").hidden = false;
+  $("reviewTarget").textContent =
+    `修改对象：${row.name} · v${row.version}（修改后生成待审核新版本）`;
+  $("prompt").focus();
+}
+function fileTitle(file) {
+  const review = state.reviews.find((r) => r.file_id === file.id);
+  return (
+    file.name +
+    (review
+      ? ` · v${review.version} · ${review.status === "pending" ? "待审核草稿" : "已审核"}`
+      : "")
+  );
+}
 function renderTree() {
+  const pending = new Set(
+    state.reviews.filter((r) => r.status === "pending").map((r) => r.file_id),
+  );
+  const approved = new Set(
+    state.reviews.filter((r) => r.status === "approved").map((r) => r.file_id),
+  );
   const groups = [
+    [
+      "风格 · 待审核",
+      state.files.filter((f) => f.kind === "style" && pending.has(f.id)),
+    ],
+    [
+      "风格 · 已审核",
+      state.files.filter((f) => f.kind === "style" && approved.has(f.id)),
+    ],
+    [
+      "译文 · 待审核草稿",
+      state.files.filter(
+        (f) => ["output", "edited"].includes(f.kind) && pending.has(f.id),
+      ),
+    ],
+    [
+      "译文 · 已审核",
+      state.files.filter(
+        (f) => ["output", "edited"].includes(f.kind) && approved.has(f.id),
+      ),
+    ],
     ["指导文件", null],
     ["参考语料", state.files.filter((f) => f.kind === "corpus")],
     [
@@ -411,10 +541,7 @@ function renderTree() {
           !f.path.startsWith("runs/"),
       ),
     ],
-    [
-      "译文与修订",
-      state.files.filter((f) => ["output", "edited"].includes(f.kind)),
-    ],
+
     ["排版文件", state.files.filter((f) => f.kind === "typeset")],
     ["核查与报告", state.files.filter((f) => f.kind === "report")],
   ];
@@ -431,10 +558,11 @@ function renderTree() {
             ? files
                 .map(
                   (f) =>
-                    `<div class="file-row"><button data-file="${f.id}" title="${esc(f.path)}">▤ ${esc(f.name)}</button><button class="pick" data-pick="${f.id}" title="附加到本次消息">＋</button>${f.kind === "corpus" ? `<button class="pick" data-remove="${f.id}" title="删除参考语料">×</button>` : ""}</div>`,
+                    `<div class="file-row"><button data-file="${f.id}" title="${esc(f.path)}">▤ ${esc(fileTitle(f))}</button><button class="pick" data-pick="${f.id}" title="附加到本次消息">＋</button>${f.kind === "corpus" ? `<button class="pick" data-remove="${f.id}" title="删除参考语料">×</button>` : ""}</div>`,
                 )
                 .join("")
             : Object.entries(configs)
+                .filter(([id]) => id !== "style")
                 .map(
                   ([id, label]) =>
                     `<div class="file-row"><button data-config="${id}">▤ ${label}</button></div>`,
@@ -544,6 +672,9 @@ function renderTree() {
 }
 function setTask(kind) {
   state.kind = kind;
+  state.reviewTarget = null;
+  $("reviewTarget").hidden = true;
+  renderStyleChoice();
   const template = state.templates.find((t) => t.id === kind);
   $("prompt").value = template?.prompt || "";
   $("preset").hidden = kind !== "layout";
@@ -557,11 +688,14 @@ function updateScope() {
   const selected = [...state.selected].filter(
     ([, role]) => role === "document",
   );
-  const latest = state.files.find((f) => f.kind === "output");
+  const latestReview = state.reviews
+    .filter((r) => r.kind === "translation" && r.status === "approved")
+    .sort((a, b) => b.approved - a.approved)[0];
+  const latest = state.files.find((f) => f.id === latestReview?.file_id);
   $("scope").textContent =
     !selected.length && ["layout", "factcheck"].includes(state.kind)
       ? latest
-        ? `本次默认使用最新译文：${latest.name}`
+        ? `本次默认使用最新已审核译文：${latest.name}`
         : "请上传或选择本次处理的文档"
       : state.kind === "translate"
         ? "仅处理所选文档 · 使用翻译风格，暂不加载术语、人名规范或词表"
@@ -604,6 +738,11 @@ function showPreview() {
   $("historyButton").hidden = !state.preview.config;
   $("saveConfig").hidden = !state.preview.config;
   $("download").href = state.preview.download;
+  const review = state.reviews.find(
+    (r) => state.preview.download === base() + `/files/${r.file_id}/download`,
+  );
+  $("reviseVersion").hidden = !review;
+  $("reviseVersion").onclick = () => review && selectReview(review.id);
   renderPreview(false, false);
 }
 async function openFile(id) {
@@ -616,7 +755,11 @@ async function openFile(id) {
     return;
   state.preview = {
     ...data,
-    name: file.name,
+    name:
+      file.name +
+      (state.reviews.find((r) => r.file_id === id)?.status === "pending"
+        ? " · 待审核草稿"
+        : ""),
     download: base() + `/files/${id}/download`,
   };
   showPreview();
@@ -991,6 +1134,9 @@ listen("composer", "submit", async (e) => {
   try {
     const payload = {
       kind: state.kind,
+      review_id: state.reviewTarget,
+      style_version_id:
+        state.kind === "translate" ? $("styleChoice").value || null : null,
       message: $("prompt").value,
       file_ids: [...state.selected]
         .filter(([, r]) => r === "document")

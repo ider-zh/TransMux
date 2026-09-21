@@ -20,18 +20,19 @@ from .jobs import NeedsAttention, Worker, object_schema
 from .layout import converter_command, export_original, inspect_docx
 from .presets import structure
 from .store import Store, atomic_write, uid
+from .reviews import ReviewStore
 
 SKILLS = Path(__file__).parent / 'skills'
 CONFIGS = ('style', 'requirements', 'terms', 'mappings', 'people')
 YES = {'是', '是的', '好', '好的', '可以', 'yes', 'ok', '确认', '修改'}
 TEMPLATES = [
-    {'id': 'style', 'title': '提取翻译风格', 'prompt': '请从所选参考语料中学习翻译风格，并更新适用的术语与人名规范。'},
+    {'id': 'style', 'title': '提取翻译风格', 'prompt': '请从所选参考语料中学习翻译风格，生成独立的待审核风格，不提取关键词、术语或人名。'},
     {'id': 'translate', 'title': '翻译文档', 'prompt': '请遵照工作区的翻译风格，翻译所选文档并完成审校。本次不加载术语、人名规范或词表。'},
     {'id': 'layout', 'title': '文档排版', 'prompt': '请按所选期刊版式排版文档，保留正文内容，并标明需要补充的文献信息。'},
     {'id': 'factcheck', 'title': '事实核查', 'prompt': '请通过外部来源核查文档中的事实，生成带来源的核查报告。'}]
 
 
-class WorkspaceStore(Store):
+class WorkspaceStore(ReviewStore, Store):
     def create_project(self, *args, **kwargs):
         project = super().create_project(*args, **kwargs)
         pid = project['id']
@@ -42,6 +43,7 @@ class WorkspaceStore(Store):
             path = work / name
             text = path.read_text().replace('semantic retrieval, ', '').replace('sources/, rag/,', 'sources/,')
             path.write_text(text + '\nTask-specific skills are supplied by the harness. Only attached or explicitly selected files are task inputs.\n')
+        self.execute('INSERT OR IGNORE INTO review_migrations VALUES (?)', (pid,))
         return self.project(pid)
 
 
@@ -72,7 +74,7 @@ class SkillRunner:
         run.mkdir(exist_ok=True, parents=True)
         atomic_write(run / 'task-skill.md', prefix)
         prefix += '\nUser task instructions:\n' + payload.get('message', '') + '\n'
-        for fid in ([] if job['kind'] == 'translate' else payload.get('glossary_ids', [])):
+        for fid in ([] if job['kind'] in ('translate', 'style') else payload.get('glossary_ids', [])):
             file = self.store.file(pid, fid)
             blocks = extract(self.store.download_path(pid, file))
             data = '\n'.join(blocks)
@@ -109,7 +111,7 @@ class WorkspaceWorker(Worker):
 
     def style_identity(self, job):
         payload = json.loads(job['payload'])
-        return hashlib.sha256(((SKILLS / 'style' / 'SKILL.md').read_text() + payload.get('message', '')).encode()).hexdigest()
+        return hashlib.sha256(((SKILLS / 'style' / 'SKILL.md').read_text() + payload.get('message', '') + 'style-only-human-review-v1').encode()).hexdigest()
 
     async def perform(self, job):
         pid, jid, kind = job['project'], job['id'], job['kind']
@@ -125,9 +127,11 @@ class WorkspaceWorker(Worker):
         if kind in ('translate', 'style'):
             if kind == 'style':
                 # Explicitly attach references to the maintained reference set. Other uploads stay untouched.
+                corpus_ids = []
                 for fid in payload['file_ids']:
                     file = self.store.file(pid, fid)
                     if file['kind'] == 'corpus':
+                        corpus_ids.append(fid)
                         continue
                     source = self.store.download_path(pid, file)
                     copy = work / 'corpus' / (fid + source.suffix)
@@ -136,8 +140,11 @@ class WorkspaceWorker(Worker):
                     if not existing:
                         shutil.copyfile(source, copy)
                         atomic_write(Path(str(copy) + '.json'), json.dumps(await self.blocking(extract, copy), ensure_ascii=False))
-                        self.store.add_file(pid, file['name'], 'corpus', copy)
-                return await super().perform(job)
+                        corpus_ids.append(self.store.add_file(pid, file['name'], 'corpus', copy))
+                    else:
+                        corpus_ids.append(existing[0]['id'])
+                child = dict(job, payload=json.dumps(dict(payload, _style_corpus_ids=corpus_ids)))
+                return await super().perform(child)
             results = []
             for fid in payload['file_ids']:
                 selected = self.store.file(pid, fid)
@@ -150,7 +157,10 @@ class WorkspaceWorker(Worker):
                 child = dict(job, payload=json.dumps(dict(payload, file_id=input_id, _document=fid)))
                 self.phase(job, 'translate', '正在翻译', selected['name'])
                 results.append(await super().perform(child))
-            return {'message': '翻译与审校完成', 'documents': results}
+            return {'message': '自动翻译与审校完成，等待人工审核', 'documents': results}
+        if kind in ('layout', 'factcheck'):
+            for fid in payload['file_ids']:
+                self.store.require_approved_input(pid, fid)
         if kind == 'layout':
             return await self.typeset(job, payload, run)
         if kind == 'factcheck':
@@ -250,12 +260,24 @@ class WorkspaceWorker(Worker):
         output = run / 'fact-corrected.docx'
         await self.blocking(export_docx, snapshot, blocks, output)
         fid = self.store.add_file(pid, output.name, 'edited', output)
+        previous = self.store.review_for_file(pid, record.get('source_file'))
+        self.store.register_review(pid, 'translation', output.name, fid, job=job['id'], parent=previous['id'] if previous else None)
         notes = self.publish_text(pid, run, 'correction-notes.md', '# Corrections\n\n' + '\n\n'.join(changes or ['No unambiguous corrections applied.'])
                                   + '\n\nDisputed and insufficient-evidence claims remain unchanged.')
         return {'message': '修订副本与修改说明已生成', 'file_id': fid, 'notes_file': notes}
 
     async def chat(self, job, payload, run):
         pid, jid = job['project'], job['id']
+        if payload.get('review_id'):
+            review = self.store.review(pid, payload['review_id'])
+            if review['kind'] == 'style':
+                answer = await self.runner.run(pid, jid,
+                    'Revise only this translation style according to the user request. Return the complete style in the project target language. '
+                    'Do not extract terms or people. The result will require human approval.\n' +
+                    json.dumps({'style': review['content'], 'target_language': self.store.project(pid)['target_language']}, ensure_ascii=False),
+                    object_schema({'content': {'type': 'string'}}))
+                new = self.store.create_style(pid, review['name'], answer['content'], jid, review['id'])
+                return {'message': '风格修订已生成，等待人工审核', 'review_id': new['id'], 'file_id': new['file_id']}
         context = []
         for fid in payload['file_ids']:
             file = self.store.file(pid, fid)
@@ -299,8 +321,12 @@ class WorkspaceWorker(Worker):
             else:
                 await self.blocking(export_docx, source, blocks, output)
             if formatting:
+                self.store.require_approved_input(pid, file['id'])
                 await self.blocking(apply_formatting, output, formatting)
-            outputs.append(self.store.add_file(pid, output.name, 'edited', output))
+            fid = self.store.add_file(pid, output.name, 'edited', output)
+            previous = self.store.review_for_file(pid, file['id'])
+            self.store.register_review(pid, 'translation', output.name, fid, job=jid, parent=previous['id'] if previous else None)
+            outputs.append(fid)
         return {'message': answer['answer'], 'file_ids': outputs}
 
     async def format_citations(self, job, path, payload, details):
@@ -315,6 +341,10 @@ class WorkspaceWorker(Worker):
             docx = run / 'manuscript.docx'
             await self.blocking(export_docx, source, await self.blocking(extract, source), docx)
             source = docx
+        if source.parent != run:
+            copied = run / 'manuscript.docx'
+            shutil.copyfile(source, copied)
+            source = copied
         fid = self.store.add_file(pid, 'manuscript.docx', 'source', source)
         info = await self.blocking(structure, source)
         result = await export_original(self, job, dict(payload, file_id=fid, source_sha256=info['source_sha256']))
@@ -396,6 +426,8 @@ class MessageInput(Input):
     glossary_ids: list[str] = Field(default_factory=list, max_length=5)
     template: Literal['original', 'jcst', 'ieee-access'] = 'original'
     report_job: str | None = None
+    review_id: str | None = None
+    style_version_id: str | None = None
 
 
 async def convert_doc(source, directory):
@@ -430,9 +462,24 @@ def configure(app):
         path = request.url.path
         if request.method == 'DELETE' and any(path.startswith(f'/api/projects/{pid}') for pid in uploading):
             return JSONResponse({'detail': '附件正在上传，请稍后删除'}, status_code=409)
+        if request.method in ('PUT', 'POST') and ('/config/style/history/' in path or path.endswith('/config/style')):
+            return JSONResponse({'detail': '请从风格版本的审核卡片提出修改；新版本需人工审核'}, status_code=409)
         if '/rag-' in path or path.endswith('/jobs') and request.method == 'POST':
             return JSONResponse({'detail': '请使用新版对话任务入口'}, status_code=404)
         return await call_next(request)
+
+    @app.get('/api/projects/{pid}/reviews')
+    async def reviews(pid: str):
+        app.state.store.project(pid)
+        return app.state.store.rows('SELECT id,project,kind,root,parent,version,name,file_id,status,job,style_id,created,approved FROM human_reviews WHERE project=? ORDER BY created DESC', (pid,))
+
+    @app.post('/api/projects/{pid}/reviews/{rid}/approve')
+    async def approve(pid: str, rid: str):
+        return app.state.store.approve_review(pid, rid)
+
+    @app.get('/api/projects/{pid}/reviews/{rid}')
+    async def review_version(pid: str, rid: str):
+        return app.state.store.review(pid, rid)
 
     @app.get('/api/templates')
     async def templates():
@@ -456,9 +503,24 @@ def configure(app):
                 kind = 'factfix'
             elif body.report_job:
                 raise HTTPException(409, '这份核查报告已不是当前待确认任务')
+        review_id = body.review_id
+        if kind == 'chat' and not review_id:
+            style_inputs = [store.review_for_file(pid, fid) for fid in ids if store.file(pid, fid)['kind'] == 'style']
+            if style_inputs:
+                if len(ids) != 1 or len(style_inputs) != 1:
+                    raise ValueError('请明确选择一份风格版本进行修改')
+                review_id = style_inputs[0]['id']
+                payload['review_id'] = review_id
+        if review_id:
+            review = store.review(pid, review_id)
+            if kind != 'chat':
+                raise ValueError('审核卡片的修改请使用普通对话')
+            if ids and ids != [review['file_id']]:
+                raise ValueError('审核对象与附加文档不一致')
+            ids = [review['file_id']] if review['kind'] == 'translation' else []
         if kind in ('layout', 'factcheck') and not ids:
-            latest = store.rows("SELECT id FROM files WHERE project=? AND kind='output' ORDER BY created DESC LIMIT 1", (pid,))
-            ids = [latest[0]['id']] if latest else []
+            latest = store.latest_approved_translation(pid)
+            ids = [latest] if latest else []
         if kind in ('style', 'translate', 'layout', 'factcheck') and not ids:
             raise ValueError('请附加或明确选择本次处理的文档')
         if kind in ('layout', 'factcheck') and len(ids) != 1:

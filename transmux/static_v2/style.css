@@ -784,3 +784,33 @@ dialog label select {
   height: 6px;
   accent-color: var(--accent, #2563eb);
 }
+
+.review-card {
+  border: 1px solid #dcae50;
+  border-radius: 12px;
+  padding: 14px;
+  margin: 12px 0;
+  background: var(--panel, #fff);
+}
+.review-card p {
+  font-size: 12px;
+  color: #8a5b11;
+}
+#styleChoiceLabel {
+  display: block;
+  margin: 8px 0;
+  font-size: 13px;
+}
+#styleChoice {
+  max-width: 100%;
+}
+#reviewTarget {
+  padding: 8px;
+  background: #fff5d7;
+  color: #735016;
+}
+
+#styleChoiceLabel[hidden],
+#reviewTarget[hidden] {
+  display: none;
+}
