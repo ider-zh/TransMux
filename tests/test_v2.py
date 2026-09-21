@@ -298,3 +298,56 @@ def test_translation_does_not_preload_terminology_or_names(tmp_path, monkeypatch
             assert 'Check names against approved spellings' not in prompt
         for kind, content in saved.items():
             assert client.get(f'/api/projects/{pid}/config/{kind}').json()['content'] == content
+
+
+def test_translation_review_has_bounded_final_repair_and_preserves_advice(tmp_path, monkeypatch):
+    monkeypatch.setattr('transmux.app.availability', lambda: [{'id': 'codex', 'available': True}])
+    class ReviewRunner(Runner):
+        reviews = 0
+        drafts = 0
+        async def run_isolated(self, pid, jid, prompt, schema=None):
+            result = await super().run_isolated(pid, jid, prompt, schema)
+            if 'translations' in schema['properties']:
+                self.drafts += 1
+                result['translations'][0]['paragraphs'] = [f'Draft version {self.drafts}.']
+            if 'passed' in schema['properties']:
+                self.reviews += 1
+                assert 'optional fluency' in prompt.lower()
+                if self.reviews > 1:
+                    assert f'Issue {self.reviews - 1}' in prompt
+                result = {'passed': self.reviews == 4, 'issues': [] if self.reviews == 4 else [f'Issue {self.reviews}'],
+                          'suggestions': ['An optional wording preference.'], 'mapping_issues': [], 'people_issues': []}
+            return result
+    runner = ReviewRunner()
+    app = create_v2_app(tmp_path, lambda store: WorkspaceWorker(store, runner))
+    with TestClient(app) as client:
+        pid = client.post('/api/projects', json={'name': 'Review repair', 'agent': 'codex'}).json()['id']
+        source = upload(client, pid)
+        task = client.post(f'/api/projects/{pid}/messages', json={'kind': 'translate', 'file_ids': [source['id']]}).json()
+        result = finished(client, pid, task['id'])
+        assert result['state'] == 'succeeded', result['result']
+        assert runner.drafts == runner.reviews == 4
+        paths = list((tmp_path / 'projects' / pid / 'runs' / task['id']).rglob('batch-1-review-4.json'))
+        assert json.loads(paths[0].read_text())['suggestions'] == ['An optional wording preference.']
+
+
+def test_translation_review_stops_unchanged_draft(tmp_path, monkeypatch):
+    monkeypatch.setattr('transmux.app.availability', lambda: [{'id': 'codex', 'available': True}])
+    class StuckRunner(Runner):
+        async def run_isolated(self, pid, jid, prompt, schema=None):
+            result = await super().run_isolated(pid, jid, prompt, schema)
+            if 'passed' in schema['properties']:
+                result = {'passed': False, 'issues': ['A substantive meaning error.'], 'suggestions': [],
+                          'mapping_issues': [], 'people_issues': []}
+            return result
+    runner = StuckRunner()
+    app = create_v2_app(tmp_path, lambda store: WorkspaceWorker(store, runner))
+    with TestClient(app) as client:
+        pid = client.post('/api/projects', json={'name': 'Stalled review', 'agent': 'codex'}).json()['id']
+        source = upload(client, pid)
+        task = client.post(f'/api/projects/{pid}/messages', json={'kind': 'translate', 'file_ids': [source['id']]}).json()
+        result = finished(client, pid, task['id'])
+        assert result['state'] == 'needs_attention'
+        assert '修订未产生变化' in result['result']
+        assert len(runner.calls) == 3  # do not pay for another review of identical text
+        assert not any(f['kind'] == 'output' for f in client.get(f'/api/projects/{pid}/files').json())
