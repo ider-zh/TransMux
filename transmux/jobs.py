@@ -207,7 +207,8 @@ class Worker:
         if payload.get("_document"):
             run = run / payload["_document"]
         run.mkdir(parents=True, exist_ok=True)
-        for name in ("style", "glossary", *terminology.KINDS):
+        style_only = bool(payload.get("_workspace_v2")) and kind in ("translate", "revise")
+        for name in (("style",) if style_only else ("style", "glossary", *terminology.KINDS)):
             self.store.snapshot_config(pid, name)
         atomic_write(run / "agent.json", json.dumps({"agent": self.store.project(pid)["agent"],
                      "model": payload.get("_model")}, ensure_ascii=False, indent=2))
@@ -220,7 +221,7 @@ class Worker:
         requirements = self.store.snapshot_config(pid, "requirements")["content"]
         atomic_write(run / "requirements.md", requirements)
         glossary = ""
-        for name in terminology.KINDS:
+        for name in (() if style_only else terminology.KINDS):
             data = terminology.decode(name, self.store.snapshot_config(pid, name)["content"])
             snapshot = json.dumps([row for row in data["rows"] if terminology.active(row)], ensure_ascii=False, indent=2)
             atomic_write(run / (name + ".json"), snapshot)
@@ -240,7 +241,10 @@ class Worker:
                 "mark them with quotes, inline code or Markdown blockquotes. Legacy guidance may use a different language: "
                 "preserve its valid intent, but rewrite generated guidance in the target language. "
                 "Do not infer the output language from the interface, conversation history or legacy guidance.\n"
-                f"User requirements (override conflicting learned guidance):\n{requirements}\nStyle guidance snapshot:\n{style}\nTerminology snapshot:\n{glossary}\n" + term_policy.POLICY)
+                f"User requirements (override conflicting learned guidance):\n{requirements}\nStyle guidance snapshot:\n{style}\n" +
+                ("Use only the supplied style and task instructions. Do not read or load workspace terminology, name registries, "
+                 "mapping tables or attached glossaries. Translate names and terms accurately from source context.\n"
+                 if style_only else f"Terminology snapshot:\n{glossary}\n") + term_policy.POLICY)
         if kind == "terminology_review":
             return await term_review.generate(self, job, base, run)
         if kind == "rag":
@@ -296,7 +300,7 @@ class Worker:
             elif use_rag:
                 await self.ensure_index(job, work, corpus, target)
             else:
-                self.store.event(pid, jid, "progress", "使用项目翻译风格与术语规范。" if self.rag is None else "本次已关闭 RAG，继续使用项目风格与关键词表。")
+                self.store.event(pid, jid, "progress", "使用项目翻译风格；本次不加载术语、人名规范及词表。" if style_only else "使用项目翻译风格与术语规范。" if self.rag is None else "本次已关闭 RAG，继续使用项目风格与关键词表。")
             source_records = await self.blocking(source_blocks, source, blocks)
             planner = ChapterPlanner(source_records)
             alignment, approved_pairs, approved_people = [], [], []
@@ -353,7 +357,7 @@ class Worker:
                     pairs, selection_report = term_policy.screen(pairs, target)
                     mapping_report.extend(selection_report)
                     people, people_report = term_policy.names(response.get('people', []), batch, target,
-                        terminology.decode('people', self.store.snapshot_config(pid, 'people')['content'])['rows'], groups)
+                        [] if style_only else terminology.decode('people', self.store.snapshot_config(pid, 'people')['content'])['rows'], groups)
                     atomic_write(run / f'batch-{batch_number}-people-{round_no}.json', json.dumps({'rows': people, 'diagnostics': people_report}, ensure_ascii=False))
                     atomic_write(run / f"batch-{batch_number}-mappings-{round_no}.json", json.dumps(pairs, ensure_ascii=False, indent=2))
                     atomic_write(run / f"batch-{batch_number}-mapping-validation-{round_no}.json", json.dumps(mapping_report, ensure_ascii=False, indent=2))
@@ -365,7 +369,8 @@ class Worker:
                                total=len(blocks), completed=offset, start=offset+1, end=offset+len(batch), round=round_no)
                     review = await self.runner.run(pid, jid, context + "\nAct as a strict reviewer. Check omissions, mistranslations, "
                         "target language, terminology used in the actual translation, style and numbers. " + term_policy.POLICY +
-                        "Check names against approved spellings; do not accept guessed identities in the draft. "
+                        ("Check names against source context; do not invent identities or require an external name registry. " if style_only else
+                         "Check names against approved spellings; do not accept guessed identities in the draft. ") +
                         "Alignment is by source_ids groups, NOT equal paragraph counts. Check completeness across the whole group "
                         "and whether merges/splits are justified. Valid structural repairs and style-driven regrouping must pass. "
                         "This review policy supersedes earlier review requests in this conversation: passed and issues refer ONLY "

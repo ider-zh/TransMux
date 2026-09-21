@@ -263,3 +263,38 @@ def test_event_tail_is_bounded_ordered_and_project_scoped(tmp_path, monkeypatch)
         assert client.get(f'/api/projects/{pid}/events').json()[0]['text'] == '0'
         client.portal.call(app.state.store.event, pid, None, 'progress', 'new')
         assert [r['text'] for r in client.get(f"/api/projects/{pid}/events?after={rows[-1]['id']}").json()] == ['new']
+
+
+def test_translation_does_not_preload_terminology_or_names(tmp_path, monkeypatch):
+    from transmux import terminology
+    monkeypatch.setattr('transmux.app.availability', lambda: [{'id': 'codex', 'available': True}])
+    runner = Runner()
+    app = create_v2_app(tmp_path, lambda store: WorkspaceWorker(store, runner))
+    with TestClient(app) as client:
+        pid = client.post('/api/projects', json={'name': 'Style only', 'agent': 'codex'}).json()['id']
+        source = upload(client, pid)
+        glossary = upload(client, pid, 'ATTACHED_GLOSSARY_SENTINEL', 'glossary.docx')
+        saved = {}
+        for kind in terminology.KINDS:
+            rows = [{**{field: 'REGISTRY_SENTINEL ' + str(i) for field in terminology.FIELDS[kind]},
+                     'origin': 'manual', 'context' if kind != 'terms' else 'usage': 'Long registry evidence. ' * 200}
+                    for i in range(50)]
+            content = terminology.encode({'rows': rows, 'deleted': [], 'legacy': ''})
+            def write(kind=kind, content=content):
+                store = app.state.store
+                store.write_config(pid, kind, content, store.snapshot_config(pid, kind)['revision'])
+                return store.snapshot_config(pid, kind)['content']
+            saved[kind] = client.portal.call(write)
+        style = client.get(f'/api/projects/{pid}/config/style').json()['content']
+        task = client.post(f'/api/projects/{pid}/messages', json={'kind': 'translate', 'file_ids': [source['id']],
+                          'glossary_ids': [glossary['id']], 'message': 'Keep the original meaning.'}).json()
+        result = finished(client, pid, task['id'])
+        assert result['state'] == 'succeeded', result['result']
+        assert len(runner.calls) == 2  # translation and review both exclude registries
+        for _, _, prompt, _ in runner.calls:
+            assert style in prompt and 'Keep the original meaning.' in prompt
+            assert 'REGISTRY_SENTINEL' not in prompt
+            assert 'ATTACHED_GLOSSARY_SENTINEL' not in prompt
+            assert 'Check names against approved spellings' not in prompt
+        for kind, content in saved.items():
+            assert client.get(f'/api/projects/{pid}/config/{kind}').json()['content'] == content

@@ -563,7 +563,9 @@ function updateScope() {
       ? latest
         ? `本次默认使用最新译文：${latest.name}`
         : "请上传或选择本次处理的文档"
-      : "仅处理本次附加或明确选中的文件";
+      : state.kind === "translate"
+        ? "仅处理所选文档 · 使用翻译风格，暂不加载术语、人名规范或词表"
+        : "仅处理本次附加或明确选中的文件";
 }
 function renderAttachments() {
   $("attachments").innerHTML = [...state.selected]

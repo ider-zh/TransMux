@@ -26,7 +26,7 @@ CONFIGS = ('style', 'requirements', 'terms', 'mappings', 'people')
 YES = {'是', '是的', '好', '好的', '可以', 'yes', 'ok', '确认', '修改'}
 TEMPLATES = [
     {'id': 'style', 'title': '提取翻译风格', 'prompt': '请从所选参考语料中学习翻译风格，并更新适用的术语与人名规范。'},
-    {'id': 'translate', 'title': '翻译文档', 'prompt': '请遵照工作区的翻译风格与术语规范，翻译所选文档并完成审校。'},
+    {'id': 'translate', 'title': '翻译文档', 'prompt': '请遵照工作区的翻译风格，翻译所选文档并完成审校。本次不加载术语、人名规范或词表。'},
     {'id': 'layout', 'title': '文档排版', 'prompt': '请按所选期刊版式排版文档，保留正文内容，并标明需要补充的文献信息。'},
     {'id': 'factcheck', 'title': '事实核查', 'prompt': '请通过外部来源核查文档中的事实，生成带来源的核查报告。'}]
 
@@ -72,7 +72,7 @@ class SkillRunner:
         run.mkdir(exist_ok=True, parents=True)
         atomic_write(run / 'task-skill.md', prefix)
         prefix += '\nUser task instructions:\n' + payload.get('message', '') + '\n'
-        for fid in payload.get('glossary_ids', []):
+        for fid in ([] if job['kind'] == 'translate' else payload.get('glossary_ids', [])):
             file = self.store.file(pid, fid)
             blocks = extract(self.store.download_path(pid, file))
             data = '\n'.join(blocks)
