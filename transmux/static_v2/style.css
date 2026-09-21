@@ -814,3 +814,27 @@ dialog label select {
 #reviewTarget[hidden] {
   display: none;
 }
+
+#glossaryChoiceLabel {
+  display: block;
+  margin: 8px 0;
+  font-size: 13px;
+}
+#glossaryChoiceLabel[hidden] {
+  display: none;
+}
+#glossaryChoice {
+  max-width: 100%;
+}
+.glossary-table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 14px;
+}
+.glossary-table th,
+.glossary-table td {
+  border: 1px solid #ddd;
+  padding: 8px;
+  text-align: left;
+  overflow-wrap: anywhere;
+}

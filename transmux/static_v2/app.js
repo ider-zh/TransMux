@@ -30,6 +30,7 @@ const state = {
 };
 const labels = {
   style: "提取翻译风格",
+  glossary: "整理对照词表",
   translate: "翻译文档",
   layout: "文档排版",
   factcheck: "事实核查",
@@ -356,7 +357,7 @@ function renderFeed() {
           ? progress.title || "Agent 正在工作"
           : statuses[job.state];
       const isActive = !terminal.has(job.state);
-      return `<article class="message user">${esc(payload.message || labels[job.kind])}${payload._style_name ? `<div class="hint">使用风格：${esc(payload._style_name)}</div>` : ""}${(payload.file_ids || []).map((id) => `<div class="hint">▤ ${esc(state.files.find((f) => f.id === id)?.name || "附件")}</div>`).join("")}</article><article class="message assistant"><div class="assistant-label">${esc(project()?.agent || "Agent")} · ${esc(labels[job.kind] || job.kind)}</div><details class="work-status ${job.state}" data-job="${job.id}" ${opened.has(job.id) ? "open" : ""}><summary><span class="dot"></span>${esc(summary)}<span class="elapsed" data-start="${job.created}" data-active="${isActive}">${isActive ? Math.max(0, Math.floor(Date.now() / 1000 - job.created)) + "s" : ""}</span></summary><div class="steps" data-steps="${job.id}">${progress.detail ? `<div class="step">${esc(progress.detail)}</div>` : ""}${events
+      return `<article class="message user">${esc(payload.message || labels[job.kind])}${payload._style_name ? `<div class="hint">使用风格：${esc(payload._style_name)}</div>` : ""}${payload._glossary_name ? `<div class="hint">使用词表：${esc(payload._glossary_name)}</div>` : ""}${(payload.file_ids || []).map((id) => `<div class="hint">▤ ${esc(state.files.find((f) => f.id === id)?.name || "附件")}</div>`).join("")}</article><article class="message assistant"><div class="assistant-label">${esc(project()?.agent || "Agent")} · ${esc(labels[job.kind] || job.kind)}</div><details class="work-status ${job.state}" data-job="${job.id}" ${opened.has(job.id) ? "open" : ""}><summary><span class="dot"></span>${esc(summary)}<span class="elapsed" data-start="${job.created}" data-active="${isActive}">${isActive ? Math.max(0, Math.floor(Date.now() / 1000 - job.created)) + "s" : ""}</span></summary><div class="steps" data-steps="${job.id}">${progress.detail ? `<div class="step">${esc(progress.detail)}</div>` : ""}${events
         .filter((e) => detailsText(e))
         .map(
           (e) =>
@@ -412,7 +413,36 @@ function renderFeed() {
   renderReviewCards();
   if (bottom) feed.scrollTop = feed.scrollHeight;
 }
+function renderGlossaryChoice() {
+  const choices = state.reviews.filter(
+    (r) =>
+      r.kind === "glossary" &&
+      r.status === "approved" &&
+      !state.reviews.some(
+        (n) =>
+          n.root === r.root && n.status === "approved" && n.version > r.version,
+      ),
+  );
+  const previous = $("glossaryChoice").value;
+  $("glossaryChoiceLabel").hidden =
+    state.kind !== "translate" || !choices.length;
+  $("glossaryChoice").innerHTML = choices.length
+    ? (choices.length > 1
+        ? '<option value="">请选择已审核对照词表</option>'
+        : "") +
+      choices
+        .map(
+          (r) =>
+            `<option value="${r.id}">${esc(r.name)} · v${r.version}</option>`,
+        )
+        .join("")
+    : '<option value="">不使用对照词表</option>';
+  if (choices.some((r) => r.id === previous))
+    $("glossaryChoice").value = previous;
+  $("glossaryChoice").disabled = choices.length <= 1;
+}
 function renderStyleChoice() {
+  renderGlossaryChoice();
   const choices = state.reviews.filter(
     (r) =>
       r.kind === "style" &&
@@ -447,7 +477,7 @@ function renderReviewCards() {
     rows
       .map(
         (r) =>
-          `<article class="review-card"><strong>${esc(r.name)} · v${r.version}</strong><p>${r.kind === "style" ? "翻译风格" : "译文草稿"} · 待审核</p><button data-review-preview="${r.file_id}">预览</button> <button data-review-edit="${r.id}">提出修改</button> <button class="primary" data-review-approve="${r.id}">审核通过</button></article>`,
+          `<article class="review-card"><strong>${esc(r.name)} · v${r.version}</strong><p>${r.kind === "style" ? "翻译风格" : r.kind === "glossary" ? "对照词表" : "译文草稿"} · 待审核</p><button data-review-preview="${r.file_id}">预览</button> <button data-review-edit="${r.id}">提出修改</button> <button class="primary" data-review-approve="${r.id}">审核通过</button></article>`,
       )
       .join("");
   $("feed").append(box);
@@ -530,6 +560,14 @@ function renderTree() {
       state.files.filter(
         (f) => ["output", "edited"].includes(f.kind) && approved.has(f.id),
       ),
+    ],
+    [
+      "对照词表 · 待审核",
+      state.files.filter((f) => f.kind === "glossary" && pending.has(f.id)),
+    ],
+    [
+      "对照词表 · 已审核",
+      state.files.filter((f) => f.kind === "glossary" && approved.has(f.id)),
     ],
     ["指导文件", null],
     ["参考语料", state.files.filter((f) => f.kind === "corpus")],
@@ -698,7 +736,7 @@ function updateScope() {
         ? `本次默认使用最新已审核译文：${latest.name}`
         : "请上传或选择本次处理的文档"
       : state.kind === "translate"
-        ? "仅处理所选文档 · 使用翻译风格，暂不加载术语、人名规范或词表"
+        ? "仅处理所选文档 · 使用已选风格及已审核对照词表（如有）"
         : "仅处理本次附加或明确选中的文件";
 }
 function renderAttachments() {
@@ -755,6 +793,7 @@ async function openFile(id) {
     return;
   state.preview = {
     ...data,
+    glossary: file.kind === "glossary",
     name:
       file.name +
       (state.reviews.find((r) => r.file_id === id)?.status === "pending"
@@ -834,6 +873,33 @@ function renderPreview(source, capture = true) {
     return;
   }
   if (p.type === "md") {
+    if (p.glossary) {
+      const decode = (value) => {
+        const el = document.createElement("textarea");
+        el.innerHTML = value.replace(/<br>/g, "\n");
+        return esc(el.value).replace(/\n/g, "<br>");
+      };
+      const rows = p.content
+        .split("\n")
+        .filter((line) => line.startsWith("|"))
+        .slice(2);
+      body.innerHTML =
+        '<h2>Translation Glossary</h2><table class="glossary-table"><thead><tr><th>原文</th><th>译文</th><th>适用语境</th></tr></thead><tbody>' +
+        rows
+          .map(
+            (line) =>
+              "<tr>" +
+              line
+                .split("|")
+                .slice(1, -1)
+                .map((cell) => "<td>" + decode(cell.trim()) + "</td>")
+                .join("") +
+              "</tr>",
+          )
+          .join("") +
+        "</tbody></table>";
+      return;
+    }
     body.innerHTML = md(p.content);
     return;
   }
@@ -1135,14 +1201,16 @@ listen("composer", "submit", async (e) => {
     const payload = {
       kind: state.kind,
       review_id: state.reviewTarget,
+      glossary_version_id:
+        state.kind === "translate" ? $("glossaryChoice").value || null : null,
       style_version_id:
         state.kind === "translate" ? $("styleChoice").value || null : null,
       message: $("prompt").value,
       file_ids: [...state.selected]
-        .filter(([, r]) => r === "document")
+        .filter(([, r]) => state.kind === "glossary" || r === "document")
         .map(([id]) => id),
       glossary_ids: [...state.selected]
-        .filter(([, r]) => r === "glossary")
+        .filter(([, r]) => state.kind !== "glossary" && r === "glossary")
         .map(([id]) => id),
       template: $("preset").value,
     };

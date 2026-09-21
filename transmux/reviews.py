@@ -21,6 +21,10 @@ class ReviewStore:
             CREATE INDEX IF NOT EXISTS review_project ON human_reviews(project, kind, created);
             CREATE TABLE IF NOT EXISTS review_migrations (project TEXT PRIMARY KEY);
         """)
+        columns = {r[1] for r in self.db.execute('PRAGMA table_info(human_reviews)')}
+        for name in ('glossary_id', 'entries'):
+            if name not in columns:
+                self.execute(f'ALTER TABLE human_reviews ADD COLUMN {name} TEXT')
         for project in self.rows('SELECT id FROM projects'):
             pid = project['id']
             if self.rows('SELECT project FROM review_migrations WHERE project=?', (pid,)):
@@ -46,7 +50,7 @@ class ReviewStore:
         rows = self.rows('SELECT * FROM human_reviews WHERE project=? AND file_id=?', (pid, fid))
         return rows[0] if rows else None
 
-    def register_review(self, pid, kind, name, fid, content=None, job=None, parent=None, style_id=None):
+    def register_review(self, pid, kind, name, fid, content=None, job=None, parent=None, style_id=None, glossary_id=None, entries=None):
         previous = self.review(pid, parent) if parent else None
         if previous and previous['kind'] != kind:
             raise ValueError('版本类型不匹配')
@@ -56,10 +60,12 @@ class ReviewStore:
         file = self.file(pid, fid)
         digest = hashlib.sha256(self.download_path(pid, file).read_bytes()).hexdigest()
         self.execute("""INSERT INTO human_reviews
-            (id,project,kind,root,parent,version,name,file_id,content,job,style_id,digest,created)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (id,project,kind,root,parent,version,name,file_id,content,job,style_id,glossary_id,entries,digest,created)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (rid,pid,kind,root,parent,version,name,fid,content,job,
-             style_id if style_id is not None else previous['style_id'] if previous else None,digest,time.time()))
+             style_id if style_id is not None else previous['style_id'] if previous else None,
+             glossary_id if glossary_id is not None else previous['glossary_id'] if previous else None,
+             json.dumps(entries, ensure_ascii=False) if entries is not None else None,digest,time.time()))
         self.event(pid, job, 'progress', f'{name} · v{version} 已生成，等待人工审核')
         return self.review(pid, rid)
 
@@ -72,6 +78,22 @@ class ReviewStore:
         atomic_write(path, content)
         fid = self.add_file(pid, name + '.md', 'style', path)
         return self.register_review(pid, 'style', name, fid, content, job, parent)
+
+    def create_glossary(self, pid, name, rows, job=None, parent=None):
+        from .glossary_documents import validate_entries, markdown
+        rows = validate_entries(rows)
+        content = markdown(rows)
+        directory = self.workspace(pid) / 'glossaries'
+        directory.mkdir(exist_ok=True)
+        path = directory / (uid() + '.md')
+        atomic_write(path, content)
+        fid = self.add_file(pid, name + '.md', 'glossary', path)
+        return self.register_review(pid, 'glossary', name, fid, content, job, parent, entries=rows)
+
+    def approved_glossaries(self, pid):
+        return self.rows("""SELECT r.* FROM human_reviews r WHERE project=? AND kind='glossary' AND status='approved'
+            AND NOT EXISTS (SELECT 1 FROM human_reviews n WHERE n.root=r.root AND n.status='approved' AND n.version>r.version)
+            ORDER BY created DESC""", (pid,))
 
     def approve_review(self, pid, rid):
         row = self.review(pid, rid)
@@ -99,7 +121,7 @@ class ReviewStore:
     def require_approved_input(self, pid, fid):
         file = self.file(pid, fid)
         review = self.review_for_file(pid, fid)
-        if file['kind'] in ('output','edited','style') or review:
+        if file['kind'] in ('output','edited','style','glossary') or review:
             if not review or review['status'] != 'approved':
                 raise ConfigConflict('这份文档尚未人工审核通过，请先审核，再进行排版或事实核查')
             if hashlib.sha256(self.download_path(pid, file).read_bytes()).hexdigest() != review['digest']:
@@ -127,6 +149,20 @@ class ReviewStore:
             payload['style_version_id'] = style['id'] if style else 'generic'
             payload['_style_content'] = style['content'] if style else INITIAL_STYLES[self.project(pid)['target_language']]
             payload['_style_name'] = style['name'] if style else '通用翻译风格（系统默认）'
+            gid = payload.get('glossary_version_id')
+            if gid:
+                glossary = self.review(pid, gid)
+                if glossary['kind'] != 'glossary' or glossary['status'] != 'approved':
+                    raise ConfigConflict('请选择已审核通过的对照词表')
+            else:
+                choices = self.approved_glossaries(pid)
+                if len(choices) > 1:
+                    raise ValueError('有多份已审核对照词表，请选择本次翻译词表')
+                glossary = choices[0] if choices else None
+            payload['glossary_version_id'] = glossary['id'] if glossary else None
+            if glossary:
+                self.require_approved_input(pid, glossary['file_id'])
+                payload['_glossary_name'] = glossary['name']
         if kind in ('layout','factcheck'):
             for fid in payload.get('file_ids', []):
                 self.require_approved_input(pid, fid)
@@ -137,7 +173,7 @@ class ReviewStore:
         payload = json.loads(self.rows('SELECT payload FROM jobs WHERE id=?', (job,))[0]['payload'])
         previous = self.review_for_file(pid, parent_file) if parent_file else None
         self.register_review(pid, 'translation', output.name, fid, job=job,
-                             parent=previous['id'] if previous else None, style_id=payload.get('style_version_id'))
+                             parent=previous['id'] if previous else None, style_id=payload.get('style_version_id'), glossary_id=payload.get('glossary_version_id'))
         return fid
 
     def remove_data(self, paths, statements):

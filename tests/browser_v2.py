@@ -13,7 +13,7 @@ from starlette.responses import JSONResponse
 from playwright.sync_api import sync_playwright
 
 from transmux.v2 import create_v2_app, WorkspaceWorker
-from test_v2 import Runner
+from test_glossary_documents import GlossaryRunner
 
 
 async def available_models(agent):
@@ -24,7 +24,7 @@ async def available_models(agent):
 def main():
     with tempfile.TemporaryDirectory(prefix='transmux-v2-browser-') as root, patch('transmux.model_catalog.live_models', available_models), patch('transmux.app.availability', lambda: [{'id': 'codex', 'available': True}, {'id': 'codebuddy', 'available': True}]):
         def factory(store):
-            runner = Runner()
+            runner = GlossaryRunner()
             runner.store = store
             return WorkspaceWorker(store, runner)
         app = create_v2_app(root, factory)
@@ -148,6 +148,35 @@ def main():
                 assert '修改对象' in page.locator('#reviewTarget').inner_text()
                 assert page.locator('#clearTask').is_hidden()  # revision uses ordinary chat
                 page.locator('#closePreview').click()
+                page.locator('[data-kind=translate]').click()
+                assert page.locator('#glossaryChoiceLabel').is_hidden()
+                glossary_ids = []
+                for name in ['terms-one.txt', 'terms-two.txt']:
+                    page.locator('#fileInput').set_input_files({'name': name, 'mimeType': 'text/plain', 'buffer': '自动机 | automaton | Computer science.'.encode()})
+                    page.locator('.attachment').wait_for()
+                    page.locator('[data-kind=glossary]').click()
+                    page.locator('#send').click()
+                    page.wait_for_function("name => document.querySelector('#reviewCards')?.textContent.includes(name)", arg=name)
+                    reviews = page.request.get(f'http://127.0.0.1:18766/api/projects/{pid}/reviews').json()
+                    glossary = next(r for r in reviews if r['kind'] == 'glossary' and r['id'] not in glossary_ids)
+                    glossary_ids.append(glossary['id'])
+                    page.locator(f'[data-review-preview="{glossary["file_id"]}"]').click()
+                    page.locator('#previewBody .glossary-table').wait_for()
+                    assert 'automaton' in page.locator('#previewBody').inner_text()
+                    page.locator('#sourceTab').click()
+                    assert '| 自动机 | automaton |' in page.locator('#previewBody').inner_text()
+                    page.locator('#closePreview').click()
+                    page.locator(f'[data-review-approve="{glossary["id"]}"]').click()
+                    page.locator(f'[data-review-approve="{glossary["id"]}"]').wait_for(state='detached')
+                    page.locator('[data-kind=translate]').click()
+                    assert page.locator('#glossaryChoiceLabel').is_visible()
+                    if len(glossary_ids) == 1:
+                        assert page.locator('#glossaryChoice').is_disabled()
+                        assert page.locator('#glossaryChoice').input_value() == glossary['id']
+                assert page.locator('#glossaryChoice').is_enabled()
+                assert page.locator('#glossaryChoice option').count() == 3
+                page.locator('#glossaryChoice').select_option(glossary_ids[0])
+                assert page.locator('#glossaryChoice').input_value() == glossary_ids[0]
                 # A slow model catalog must not block project contents or retain old DOM.
                 page.set_viewport_size({'width': 1500, 'height': 980})
                 first = page.locator('[data-project].active').get_attribute('data-project')

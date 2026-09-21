@@ -27,7 +27,8 @@ CONFIGS = ('style', 'requirements', 'terms', 'mappings', 'people')
 YES = {'是', '是的', '好', '好的', '可以', 'yes', 'ok', '确认', '修改'}
 TEMPLATES = [
     {'id': 'style', 'title': '提取翻译风格', 'prompt': '请从所选参考语料中学习翻译风格，生成独立的待审核风格，不提取关键词、术语或人名。'},
-    {'id': 'translate', 'title': '翻译文档', 'prompt': '请遵照工作区的翻译风格，翻译所选文档并完成审校。本次不加载术语、人名规范或词表。'},
+    {'id': 'glossary', 'title': '整理对照词表', 'prompt': '请将上传文档中的原文与译文对应关系整理为可供翻译使用的 Markdown 对照词表，保留适用语境，不补造未提供的对照。'},
+    {'id': 'translate', 'title': '翻译文档', 'prompt': '请遵照工作区的翻译风格，翻译所选文档并完成审校。如有已审核对照词表，请按所选词表执行。'},
     {'id': 'layout', 'title': '文档排版', 'prompt': '请按所选期刊版式排版文档，保留正文内容，并标明需要补充的文献信息。'},
     {'id': 'factcheck', 'title': '事实核查', 'prompt': '请通过外部来源核查文档中的事实，生成带来源的核查报告。'}]
 
@@ -74,7 +75,7 @@ class SkillRunner:
         run.mkdir(exist_ok=True, parents=True)
         atomic_write(run / 'task-skill.md', prefix)
         prefix += '\nUser task instructions:\n' + payload.get('message', '') + '\n'
-        for fid in ([] if job['kind'] in ('translate', 'style') else payload.get('glossary_ids', [])):
+        for fid in ([] if job['kind'] in ('translate', 'style', 'glossary') else payload.get('glossary_ids', [])):
             file = self.store.file(pid, fid)
             blocks = extract(self.store.download_path(pid, file))
             data = '\n'.join(blocks)
@@ -124,6 +125,9 @@ class WorkspaceWorker(Worker):
         skill = SKILLS / kind / 'SKILL.md'
         if skill.is_file():
             atomic_write(run / 'task-skill.md', skill.read_text())
+        if kind == 'glossary':
+            from .glossary_documents import build
+            return await build(self, job, payload, run)
         if kind in ('translate', 'style'):
             if kind == 'style':
                 # Explicitly attach references to the maintained reference set. Other uploads stay untouched.
@@ -270,6 +274,15 @@ class WorkspaceWorker(Worker):
         pid, jid = job['project'], job['id']
         if payload.get('review_id'):
             review = self.store.review(pid, payload['review_id'])
+            if review['kind'] == 'glossary':
+                from .glossary_documents import ENTRY_SCHEMA
+                response = await self.runner.run(pid, jid,
+                    'Revise this bilingual glossary only as requested. Preserve all unmentioned pairs. '
+                    'Return the complete entries, with source, target, context and a quote of the supporting '
+                    'existing entry or explicit user instruction. Do not invent unrelated pairs. Human approval is required.\n' +
+                    json.dumps({'entries': json.loads(review['entries']), 'target_language': self.store.project(pid)['target_language']}, ensure_ascii=False), ENTRY_SCHEMA)
+                new = self.store.create_glossary(pid, review['name'], response['entries'], jid, review['id'])
+                return {'message': '对照词表修订已生成，等待人工审核', 'review_id': new['id'], 'file_id': new['file_id']}
             if review['kind'] == 'style':
                 answer = await self.runner.run(pid, jid,
                     'Revise only this translation style according to the user request. Return the complete style in the project target language. '
@@ -420,7 +433,7 @@ def numbered_batches(blocks, limit=12000):
 
 
 class MessageInput(Input):
-    kind: Literal['chat', 'style', 'translate', 'layout', 'factcheck'] = 'chat'
+    kind: Literal['chat', 'style', 'glossary', 'translate', 'layout', 'factcheck'] = 'chat'
     message: str = Field(default='', max_length=20000)
     file_ids: list[str] = Field(default_factory=list, max_length=20)
     glossary_ids: list[str] = Field(default_factory=list, max_length=5)
@@ -428,6 +441,7 @@ class MessageInput(Input):
     report_job: str | None = None
     review_id: str | None = None
     style_version_id: str | None = None
+    glossary_version_id: str | None = None
 
 
 async def convert_doc(source, directory):
@@ -471,7 +485,7 @@ def configure(app):
     @app.get('/api/projects/{pid}/reviews')
     async def reviews(pid: str):
         app.state.store.project(pid)
-        return app.state.store.rows('SELECT id,project,kind,root,parent,version,name,file_id,status,job,style_id,created,approved FROM human_reviews WHERE project=? ORDER BY created DESC', (pid,))
+        return app.state.store.rows('SELECT id,project,kind,root,parent,version,name,file_id,status,job,style_id,glossary_id,created,approved FROM human_reviews WHERE project=? ORDER BY created DESC', (pid,))
 
     @app.post('/api/projects/{pid}/reviews/{rid}/approve')
     async def approve(pid: str, rid: str):
@@ -505,10 +519,10 @@ def configure(app):
                 raise HTTPException(409, '这份核查报告已不是当前待确认任务')
         review_id = body.review_id
         if kind == 'chat' and not review_id:
-            style_inputs = [store.review_for_file(pid, fid) for fid in ids if store.file(pid, fid)['kind'] == 'style']
+            style_inputs = [store.review_for_file(pid, fid) for fid in ids if store.file(pid, fid)['kind'] in ('style', 'glossary')]
             if style_inputs:
                 if len(ids) != 1 or len(style_inputs) != 1:
-                    raise ValueError('请明确选择一份风格版本进行修改')
+                    raise ValueError('请明确选择一份风格或词表版本进行修改')
                 review_id = style_inputs[0]['id']
                 payload['review_id'] = review_id
         if review_id:
@@ -521,9 +535,9 @@ def configure(app):
         if kind in ('layout', 'factcheck') and not ids:
             latest = store.latest_approved_translation(pid)
             ids = [latest] if latest else []
-        if kind in ('style', 'translate', 'layout', 'factcheck') and not ids:
+        if kind in ('style', 'glossary', 'translate', 'layout', 'factcheck') and not ids:
             raise ValueError('请附加或明确选择本次处理的文档')
-        if kind in ('layout', 'factcheck') and len(ids) != 1:
+        if kind in ('glossary', 'layout', 'factcheck') and len(ids) != 1:
             raise ValueError('本次任务请选择一份文档')
         if kind == 'chat' and not body.message:
             raise ValueError('请输入内容')
