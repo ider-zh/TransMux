@@ -1,0 +1,14 @@
+[Unit]
+Description=TransMux v2 Tailnet access on lambdax220
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+ExecStart=/usr/sbin/nginx -p /home/ider/workspace/TransMux/data-v2/tailnet-proxy/ -c /home/ider/workspace/TransMux/scripts/nginx-tailnet-v2.conf -g "daemon off;"
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=on-failure
+RestartSec=10
+UMask=0077
+
+[Install]
+WantedBy=default.target

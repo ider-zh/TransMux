@@ -6,11 +6,11 @@ import shutil
 import signal
 import re
 import subprocess
-from functools import lru_cache
 from pathlib import Path
 
+from dotenv import dotenv_values
 
-@lru_cache(maxsize=2)
+
 def model_choices(agent):
     configured = os.getenv("TRANSMUX_" + agent.upper() + "_MODELS")
     if configured is not None:
@@ -21,7 +21,7 @@ def model_choices(agent):
             models = json.loads(cache.read_text())["models"]
             return [m["slug"] for m in models if m.get("visibility", "list") == "list" and m.get("slug")]
         result = subprocess.run([os.getenv("TRANSMUX_CODEBUDDY_BIN", "codebuddy"), "--help"],
-                                capture_output=True, text=True, timeout=10)
+                                capture_output=True, text=True, timeout=10, env=agent_environment(agent))
         match = re.search(r"Currently supported: \(([^)]+)\)", result.stdout)
         return [m.strip() for m in match[1].split(",")] if match else []
     except (OSError, ValueError, KeyError, subprocess.TimeoutExpired):
@@ -31,6 +31,19 @@ def model_choices(agent):
 def availability():
     return [{"id": name, "available": bool(shutil.which(os.getenv("TRANSMUX_" + name.upper() + "_BIN", name)))}
             for name in ("codex", "codebuddy")]
+
+
+def agent_environment(agent):
+    """Load operator-owned settings, never a document workspace's .env or shell code."""
+    config_path = Path(os.getenv('TRANSMUX_ENV_FILE', str(Path(__file__).resolve().parent.parent / '.env')))
+    settings = dotenv_values(config_path, interpolate=False)
+    child = os.environ.copy()
+    for name in ('http_proxy', 'https_proxy', 'all_proxy', 'no_proxy'):
+        key = f'TRANSMUX_{agent.upper()}_{name.upper()}'
+        value = os.environ.get(key, settings.get(key))
+        if value is not None:
+            child[name] = value
+    return child
 
 
 def command(agent, session, schema_path=None, model=None):
@@ -63,6 +76,9 @@ def parse_json(text):
     text = text.strip()
     if text.startswith("```"):
         text = text.split("\n", 1)[1].rsplit("```", 1)[0]
+    wrapper = re.fullmatch(r"<StructuredOutput>\s*(.*?)\s*</StructuredOutput>", text, re.S)
+    if wrapper:
+        text = wrapper[1]
     value = json.loads(text)
     if not isinstance(value, dict):
         raise ValueError("Agent 必须返回 JSON 对象")
@@ -138,8 +154,30 @@ class AgentRunner:
         payload = json.loads(job[0]["payload"]) if job else {}
         model = payload.get("_model", project.get("model"))
         args = command(project["agent"], None if isolated else project["session"], schema_path, model)
+        if payload.get('_workspace_v2'):
+            if project['agent'] == 'codebuddy':
+                args = [arg for arg in args if arg != '-y']
+                args[args.index('--permission-mode') + 1] = 'dontAsk'
+                args += ['--tools', 'StructuredOutput,WebSearch,WebFetch' if payload.get('external_research') else 'StructuredOutput',
+                         '--allowedTools', 'StructuredOutput,WebSearch,WebFetch' if payload.get('external_research') else 'StructuredOutput',
+                         '--strict-mcp-config', '--mcp-config', '{"mcpServers":{}}', '--max-turns', '20',
+                         '--include-partial-messages']
+            else:
+                args[args.index('-s') + 1] = 'read-only'
+                # Workspace tasks need built-in search, not the host's unrelated MCP integrations.
+                import tomllib
+                config = Path(os.getenv('CODEX_HOME', str(Path.home() / '.codex'))) / 'config.toml'
+                try:
+                    servers = tomllib.loads(config.read_text()).get('mcp_servers', {})
+                except (OSError, ValueError):
+                    servers = {}
+                for name in servers:
+                    args[1:1] = ['-c', 'mcp_servers.' + name + '.enabled=false']
+        if payload.get("external_research") and project["agent"] == "codex":
+            args.insert(1, "--search")
         proc = await asyncio.create_subprocess_exec(
-            *args, cwd=work, stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
+            *args, cwd=work, env=agent_environment(project["agent"]),
+            stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE, start_new_session=True, limit=4 * 1024 * 1024)
         result = ""
         failure = None
@@ -216,4 +254,8 @@ class AgentRunner:
             raise RuntimeError(f"{project['agent']} 调用失败 (exit={code}): {failure or '请查看进度日志'}")
         if not result:
             raise RuntimeError("Agent 未返回最终结果")
-        return parse_json(result) if schema else result
+        parsed = parse_json(result) if schema else result
+        if schema and payload.get("_workspace_v2"):
+            from jsonschema import validate
+            validate(parsed, schema)
+        return parsed

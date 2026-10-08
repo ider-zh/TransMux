@@ -1,3 +1,5 @@
+> **新版对话工作区已上线：** [局域网 8765](http://192.168.1.220:8765) · [Tailscale 8765](http://100.64.156.74:8765)。使用独立 `data-v2/`，从新工作区开始；旧版服务已停止，旧数据保留。详见 [v2 设计与运行说明](docs/conversation-workspace-v2.md)。本页下方为旧版说明。
+
 # TransMux
 
 基于 Codex CLI / CodeBuddy 的轻量文档翻译 harness。项目绑定 Agent，Agent 管理会话上下文；TransMux 负责工作区文件、语义检索、任务排队、审校循环和 DOCX 发布。

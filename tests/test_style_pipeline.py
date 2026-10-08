@@ -238,3 +238,54 @@ def test_long_chinese_block_respects_budget_and_keeps_all_text(tmp_path):
     assert all(sum(tokens(r) + 30 for r in batch) <= 10000 for batch in batches(records))
     assert all(r['paragraph'] == 1 for r in records)
     store.db.close()
+
+
+def test_style_quote_typography_preserves_original_evidence():
+    from transmux.style_pipeline import observations
+    text = 'The author calls it “baffling” and explains\n  the result clearly.'
+    batch = [{'text': text, 'paragraph': 42, 'style_sample': True}]
+    response = {'observations': [{'rule': 'Use clear explanatory prose.', 'paragraph': 1,
+                                 'quote': 'calls it "baffling" and explains the result'}]}
+    result = observations(response, batch, 'en')
+    assert result[0]['evidence'] == [{'paragraph': 42, 'quote': 'calls it “baffling” and explains\n  the result'}]
+
+
+def test_style_quote_rejects_paraphrase_wrong_paragraph_and_non_sample():
+    import pytest
+    from transmux.style_pipeline import observations
+    batch = [{'text': 'The result is not supported.', 'paragraph': 1, 'style_sample': True},
+             {'text': 'The result is supported.', 'paragraph': 2, 'style_sample': False}]
+    for quote, number in [('The result is supported.', 1), ('The result is supported.', 2),
+                          ('THE RESULT IS NOT SUPPORTED.', 1)]:
+        with pytest.raises(ValueError, match='指定样本'):
+            observations({'observations': [{'rule': 'Use clear explanatory prose.', 'paragraph': number, 'quote': quote}]}, batch, 'en')
+
+
+async def test_style_evidence_repairs_only_failed_batch_and_reuses_cache(tmp_path):
+    store = Store(tmp_path)
+    pid = store.create_project('Repair evidence', 'codex')['id']
+    corpus(store, pid, 'one')
+    corpus(store, pid, 'two', ['The doctor explains a different experiment in clear professional English.'])
+
+    class RepairRunner(FakeRunner):
+        broken = False
+
+        async def run(self, *args):
+            response = await super().run(*args)
+            if 'observations' in response and 'different experiment' in args[2] and not self.broken:
+                self.broken = True
+                response['observations'][0]['quote'] = 'Invented evidence that does not occur in the source.'
+            return response
+
+    runner = RepairRunner()
+    worker = Worker(store, runner, Rag(TinyEmbeddings()))
+    result, path = await run(store, worker, pid)
+    assert result['state'] == 'succeeded', result['result']
+    assert sum('observations' in c[3]['properties'] for c in runner.calls) == 3
+    assert list(path.glob('style-batch-*-evidence-validation.json'))
+    count = len(runner.calls)
+    result, path = await run(store, worker, pid)
+    assert result['state'] == 'succeeded'
+    assert len(runner.calls) == count
+    assert json.loads((path / 'extraction-plan.json').read_text())['cached_batches'] == 2
+    store.db.close()
