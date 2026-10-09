@@ -27,13 +27,16 @@ const state = {
   refreshRequest: 0,
   previewRequest: 0,
   uploads: new Map(),
+  usage: null,
+  connected: false,
 };
 const labels = {
-  style: "提取翻译风格",
-  glossary: "整理对照词表",
+  style: "学习风格",
+  glossary: "上传专有名词表",
   translate: "翻译文档",
   layout: "文档排版",
   factcheck: "事实核查",
+  consistency: "一致性检查",
   factfix: "修订核查结果",
   chat: "对话",
 };
@@ -126,14 +129,17 @@ function md(text) {
 function project() {
   return state.projects.find((p) => p.id === state.pid);
 }
+const libraryElement = $("agentLibrary");
 async function loadProjects() {
   state.projects = await api("/api/projects");
+  libraryElement.remove();
   $("workspaces").innerHTML = state.projects
     .map(
       (p) =>
-        `<button data-project="${p.id}" class="${p.id === state.pid ? "active" : ""}">◻ &nbsp;${esc(p.name)}</button>`,
+        `<section class="agent-group" data-agent="${p.id}"><button data-project="${p.id}" class="${p.id === state.pid ? "active" : ""}" aria-expanded="${p.id === state.pid}">◻ &nbsp;${esc(p.name)}</button><div class="agent-children" data-library-host="${p.id}" hidden></div></section>`,
     )
     .join("");
+  mountAgentLibrary();
   $("workspaces")
     .querySelectorAll("[data-project]")
     .forEach(
@@ -142,8 +148,21 @@ async function loadProjects() {
           selectProject(el.dataset.project).catch((e) => reportError(e))),
     );
 }
+function mountAgentLibrary() {
+  const host = document.querySelector(`[data-library-host="${state.pid}"]`);
+  document.querySelectorAll("[data-library-host]").forEach(el => el.hidden = el !== host);
+  document.querySelectorAll("[data-project]").forEach(el => {
+    el.classList.toggle("active", el.dataset.project === state.pid);
+    el.setAttribute("aria-expanded", String(el.dataset.project === state.pid));
+  });
+  if (host) host.append(libraryElement);
+  else $("workspaces").after(libraryElement);
+  libraryElement.hidden = !host;
+}
 async function selectProject(pid) {
   if (state.preview?.dirty && !confirm("放弃未保存的编辑？")) return;
+  $("libraryDialog").close();
+  $("styleRulesDialog").close();
   const generation = ++state.generation;
   state.reads.abort();
   state.reads = new AbortController();
@@ -159,11 +178,18 @@ async function selectProject(pid) {
   state.artifacts = [];
   state.reviews = [];
   state.reviewTarget = null;
+  state.usage = null;
+  state.connected = false;
+  renderAgentStatus();
+  $("consistencySource").value = "";
   state.busy = false;
   closePreview(true);
   document.querySelectorAll("dialog[open]").forEach((el) => el.close());
   $("feed").innerHTML = '<p class="hint">正在加载工作空间…</p>';
   $("tree").innerHTML = "";
+  $("resources").innerHTML = "";
+  $("outputs").innerHTML = "";
+  $("agentLibrary").hidden = false;
   $("referenceHint").hidden = true;
   $("toast").hidden = true;
   setTask("chat");
@@ -175,6 +201,7 @@ async function selectProject(pid) {
   document
     .querySelectorAll("[data-project]")
     .forEach((el) => el.classList.toggle("active", el.dataset.project === pid));
+  mountAgentLibrary();
   const p = project();
   $("workspaceName").textContent = p.name;
   const info = `${p.target_language === "en" ? "English" : "简体中文"} · 单一对话`;
@@ -183,7 +210,7 @@ async function selectProject(pid) {
   $("model").innerHTML =
     `<option value="${esc(p.model || "")}">${esc(p.model || "Agent 默认模型")}</option>`;
   $("model").disabled = true;
-  api(`/api/agents/${p.agent}/models`, { signal: state.reads.signal })
+  api(`/api/agents/${p.agent}/models?refresh=true`, { signal: state.reads.signal })
     .then((data) => {
       if (generation !== state.generation) return;
       const models = [
@@ -195,6 +222,8 @@ async function selectProject(pid) {
           .map((m) => `<option value="${esc(m)}">${esc(m)}</option>`)
           .join("");
       $("model").value = p.model || "";
+      $("model").title = data.warning || "已从 Agent 获取模型列表";
+      if (data.warning) toast(data.warning);
     })
     .catch(reportError)
     .finally(() => {
@@ -223,11 +252,10 @@ async function selectProject(pid) {
     } else scheduleRefresh(true);
   };
   state.stream.onopen = () => {
-    if (generation === state.generation) $("workspaceInfo").textContent = info;
+    if (generation === state.generation) { state.connected = true; renderAgentStatus(); $("workspaceInfo").textContent = info; }
   };
   state.stream.onerror = () => {
-    if (generation === state.generation)
-      $("workspaceInfo").textContent = "连接正在恢复 · 已保存的任务继续执行";
+    if (generation === state.generation) { state.connected = false; renderAgentStatus(); $("workspaceInfo").textContent = "连接正在恢复 · 已保存的任务继续执行"; }
   };
 }
 let refreshTimer;
@@ -250,19 +278,24 @@ async function refresh() {
   const generation = state.generation;
   const request = ++state.refreshRequest;
   const options = { signal: state.reads.signal };
-  const [jobs, files, reviews] = await Promise.all([
+  const [jobs, files, reviews, usage] = await Promise.all([
     api(base() + "/jobs", options),
     api(base() + "/files", options),
     api(base() + "/reviews", options),
+    api(base() + "/usage", options),
   ]);
   if (generation !== state.generation || request !== state.refreshRequest)
     return;
   state.jobs = jobs;
   state.files = files;
   state.reviews = reviews;
+  state.usage = usage;
+  if ($("settingsDialog").open) renderAgentUsage();
+  renderConsistencySource();
   renderStyleChoice();
   renderFeed();
   renderTree();
+  renderTaskSummary();
   updateScope();
   $("referenceHint").hidden = files.some((f) => f.kind === "corpus");
 }
@@ -312,9 +345,12 @@ function resultText(job) {
   );
 }
 function renderFeed() {
+  renderAgentStatus();
   if (!state.jobs.length) {
     $("feed").innerHTML =
       '<div class="welcome"><div class="mark">T</div><h1>让文档工作，更专注。</h1><p>上传文档，选择任务。<br>过程在这里展开，成果留在工作空间。</p></div>';
+    $("feed").insertAdjacentHTML("beforeend", state.reviews.map(historyReview).join(""));
+    bindReviewActions($("feed"));
     renderReviewCards();
     return;
   }
@@ -339,19 +375,6 @@ function renderFeed() {
           (e) => e.job === job.id && !["user", "succeeded"].includes(e.kind),
         )
         .slice(-100);
-      const files = state.files.filter(
-        (f) => f.path.startsWith(`runs/${job.id}/`) && f.kind !== "source",
-      );
-      const data = parse(job.result);
-      if (data?.file_id) {
-        const file = state.files.find((f) => f.id === data.file_id);
-        if (file && !files.some((f) => f.id === file.id)) files.push(file);
-      }
-      if (data?.documents)
-        for (const out of data.documents) {
-          const file = state.files.find((f) => f.id === out.file_id);
-          if (file && !files.some((x) => x.id === file.id)) files.push(file);
-        }
       const summary =
         job.state === "running"
           ? progress.title || "Agent 正在工作"
@@ -365,7 +388,7 @@ function renderFeed() {
         )
         .join(
           "",
-        )}${isActive ? `<button data-cancel="${job.id}">停止任务</button>` : ""}</div></details>${job.result ? `<div class="result">${esc(resultText(job))}</div>` : ""}${files.map((f) => `<button class="artifact" data-preview="${f.id}">▤ ${esc(fileTitle(f))} <span>↗</span></button>`).join("")}${job.kind === "factcheck" && job.state === "succeeded" && state.jobs[0].id === job.id ? `<button class="primary" data-accept="${job.id}">是，生成修订副本</button>` : ""}</article>`;
+        )}${isActive ? `<button data-cancel="${job.id}">停止任务</button>` : ""}</div></details>${job.result ? `<div class="result">${esc(resultText(job))}</div>` : ""}${terminal.has(job.state) ? usageLine(job.id) : ""}${state.reviews.filter(r => r.job === job.id).map(historyReview).join("")}${job.kind === "factcheck" && job.state === "succeeded" && state.jobs[0].id === job.id ? `<button class="primary" data-accept="${job.id}">是，生成修订副本</button>` : ""}</article>`;
     })
     .join("");
   feed.querySelectorAll("[data-cancel]").forEach(
@@ -408,6 +431,8 @@ function renderFeed() {
         }
       }),
   );
+  feed.insertAdjacentHTML("beforeend", state.reviews.filter(r => !state.jobs.some(j => j.id === r.job)).map(historyReview).join(""));
+  bindReviewActions(feed);
   for (const el of feed.querySelectorAll(".steps"))
     el.scrollTop = positions.get(el.dataset.steps) || 0;
   renderReviewCards();
@@ -466,50 +491,91 @@ function renderStyleChoice() {
   if (choices.some((r) => r.id === previous)) $("styleChoice").value = previous;
   $("styleChoice").disabled = choices.length <= 1;
 }
+const reviewKinds = {style: "学习风格产出", translation: "翻译产出", layout: "排版产出", layout_report: "排版与引文处理报告", consistency: "一致性核查报告", glossary: "专有名词表", report: "其他报告"};
+const reviewStatuses = {pending: "未审核", approved: "已通过", ignored: "已忽略"};
+function historyReview(r) {
+  const name = `${r.name} · v${r.version}`;
+  return `<section class="history-review ${r.status}" data-history-review="${r.id}" aria-label="${esc(reviewKinds[r.kind])}：${esc(name)}"><span class="review-state">${esc(reviewStatuses[r.status])}</span><span class="review-filename" title="${esc(name)}">${esc(name)}</span><div class="review-actions"><button data-review-preview="${r.file_id}">预览</button>${r.status === "pending" ? `<button class="primary" data-review-approve="${r.id}">${r.kind === "style" ? "逐条审核风格" : r.kind === "translation" ? "原文对照审核" : "审核通过"}</button><button data-review-ignore="${r.id}">忽略</button>${["style", "glossary", "translation"].includes(r.kind) ? `<button data-review-edit="${r.id}">提出修改</button>` : ""}` : r.status === "ignored" ? `<button data-review-restore="${r.id}">恢复审核</button>` : ""}<button data-review-attach="${r.file_id}">附加到本次任务</button></div></section>`;
+}
+function bindReviewActions(root) {
+  root.querySelectorAll('[data-review-attach]').forEach(el => el.onclick = () => {
+    state.selected.set(el.dataset.reviewAttach, 'document');
+    renderAttachments();
+    showTaskWarning('');
+    toast('已附加到本次任务，请选择任务模板');
+  });
+  root.querySelectorAll("[data-review-preview]").forEach(el => el.onclick = () => openFile(el.dataset.reviewPreview).catch(reportError));
+  root.querySelectorAll("[data-review-edit]").forEach(el => el.onclick = () => selectReview(el.dataset.reviewEdit));
+  for (const action of ["approve", "ignore", "restore"]) root.querySelectorAll(`[data-review-${action}]`).forEach(el => el.onclick = async () => {
+    if (action === "approve" && state.reviews.find(r => r.id === el.dataset.reviewApprove)?.kind === "style") {
+      openStyleRules(el.dataset.reviewApprove).catch(reportError);
+      return;
+    }
+    if (action === "approve" && state.reviews.find(r => r.id === el.dataset.reviewApprove)?.kind === "translation") {
+      const review = state.reviews.find(r => r.id === el.dataset.reviewApprove);
+      openFile(review.file_id).catch(reportError);
+      return;
+    }
+    const generation = state.generation;
+    el.disabled = true;
+    try {
+      await api(base() + `/reviews/${el.getAttribute(`data-review-${action}`)}/${action}`, {method: "POST", body: "{}"});
+      if (generation !== state.generation) return;
+      await refresh();
+      toast({approve: "该版本已人工审核通过", ignore: "已忽略，文件和历史记录保留", restore: "已恢复到待审核"}[action]);
+    } catch (e) { reportError(e); el.disabled = false; }
+  });
+}
 function renderReviewCards() {
-  $("feed").querySelector("#reviewCards")?.remove();
-  const rows = state.reviews.filter((r) => r.status === "pending");
-  if (!rows.length) return;
-  const box = document.createElement("section");
-  box.id = "reviewCards";
-  box.innerHTML =
-    "<h3>待人工审核</h3>" +
-    rows
-      .map(
-        (r) =>
-          `<article class="review-card"><strong>${esc(r.name)} · v${r.version}</strong><p>${r.kind === "style" ? "翻译风格" : r.kind === "glossary" ? "对照词表" : "译文草稿"} · 待审核</p><button data-review-preview="${r.file_id}">预览</button> <button data-review-edit="${r.id}">提出修改</button> <button class="primary" data-review-approve="${r.id}">审核通过</button></article>`,
-      )
-      .join("");
-  $("feed").append(box);
-  box
-    .querySelectorAll("[data-review-preview]")
-    .forEach(
-      (el) =>
-        (el.onclick = () =>
-          openFile(el.dataset.reviewPreview).catch(reportError)),
-    );
-  box
-    .querySelectorAll("[data-review-edit]")
-    .forEach((el) => (el.onclick = () => selectReview(el.dataset.reviewEdit)));
-  box.querySelectorAll("[data-review-approve]").forEach(
-    (el) =>
-      (el.onclick = async () => {
-        const generation = state.generation;
-        el.disabled = true;
-        try {
-          await api(base() + `/reviews/${el.dataset.reviewApprove}/approve`, {
-            method: "POST",
-            body: "{}",
-          });
-          if (generation !== state.generation) return;
-          await refresh();
-          toast("该版本已人工审核通过");
-        } catch (e) {
-          reportError(e);
-          el.disabled = false;
-        }
-      }),
-  );
+  const box = $("outputs");
+  box.innerHTML = ["pending", "approved", "ignored"].map(status => {
+    const rows = state.reviews.filter(r => r.status === status);
+    if (!rows.length) return "";
+    const groups = Object.entries(reviewKinds).map(([kind, title]) => {
+      const entries = rows.filter(r => r.kind === kind);
+      if (!entries.length) return "";
+      return `<section class="output-group" data-output-kind="${kind}"><h3>${title}<span>${entries.length}</span></h3>${entries.map(r => `<article class="review-card" data-output="${r.file_id}"><strong class="output-filename" title="${esc(r.name)} · v${r.version} · ${reviewStatuses[r.status]}">${esc(r.name)} <small>· v${r.version}</small></strong><div class="output-actions"><button data-review-preview="${r.file_id}">预览</button><button data-review-attach="${r.file_id}">附加到本次任务</button><a href="${base()}/files/${r.file_id}/download" download>下载</a>${status === "pending" ? `<button data-review-jump="${r.id}">前往审核</button>` : status === "ignored" ? `<button data-review-restore="${r.id}">恢复审核</button>` : ""}</div></article>`).join("")}</section>`;
+    }).join("");
+    return status === "ignored" ? `<details class="output-status ignored" data-output-status="ignored"><summary>已忽略 · ${rows.length}</summary>${groups}</details>` : `<section class="output-status ${status}" data-output-status="${status}"><h2>${status === "pending" ? "未审核" : "已通过"}<span>${rows.length}</span></h2>${groups}</section>`;
+  }).join("") || '<div class="empty">任务完成后，产出会显示在这里</div>';
+  bindReviewActions(box);
+  box.querySelectorAll("[data-review-jump]").forEach(el => el.onclick = () => {
+    const card = document.querySelector(`[data-history-review="${el.dataset.reviewJump}"]`);
+    card?.scrollIntoView({behavior: "smooth", block: "center"});
+    card?.querySelector("button")?.focus({preventScroll: true});
+  });
+}
+function renderAgentStatus() {
+  const running = state.jobs.filter(j => j.state === "running");
+  const queued = state.jobs.filter(j => j.state === "queued");
+  const pending = state.reviews.filter(r => r.status === "pending");
+  let status = "idle", label = "空闲";
+  if (!state.pid) label = "未选择 Agent";
+  else if (!state.connected) { status = "connecting"; label = "连接中"; }
+  else if (running.length) { status = "running"; const job = running[0], progress = parse(job.progress) || {};
+    const phases = {translate: '翻译中', style: '学习风格中', layout: '排版中', consistency: '一致性检查中', glossary: '提取专有名词中', chat: '处理中', revise: '修订中'};
+    label = `${progress.title || phases[job.kind] || '处理中'}${queued.length ? ` · 排队 ${queued.length}` : ''}`; }
+  else if (queued.length) { status = "running"; label = `排队 ${queued.length}`; }
+  else if (pending.length) { status = "review"; label = `待审核 ${pending.length}`; }
+  else if (["failed", "needs_attention", "interrupted"].includes(state.jobs[0]?.state)) { status = "attention"; label = "需处理"; }
+  $("agentStatus").dataset.state = status;
+  const progress = running.length ? parse(running[0].progress) || {} : {};
+  const detail = running.length ? (progress.detail || 'Agent 正在执行任务') : '';
+  $('agentStatus').innerHTML = `<span class="status-copy"><strong>${esc(label)}</strong>${detail ? `<small>${esc(detail)}</small>` : ''}</span>`;
+  $("agentStatus").title = running.length ? (parse(running[0].progress)?.title || "Agent 正在执行任务") : label;
+}
+const number = value => Number(value || 0).toLocaleString("zh-CN");
+const money = value => `¥${Number(value || 0).toFixed(6)}`;
+function usageLine(jid) {
+  const u = state.usage?.jobs[jid];
+  if (!u || (!u.reported_calls && (u.calls || !u.tracking))) return '<div class="task-usage">Token 用量未记录，暂无费用估算</div>';
+  const partial = u.incomplete_calls || !u.tracking;
+  return `<div class="task-usage" data-usage-job="${jid}"><strong>${number(u.total_tokens)} Token · 预估 ${money(u.estimated_cny)}</strong><span>输入 ${number(u.input_tokens)}（缓存 ${number(u.cached_input_tokens)}） · 输出 ${number(u.output_tokens)} · Kimi K3 标准${partial ? " · 用量不完整，仅统计已报告部分" : ""}</span></div>`;
+}
+function renderAgentUsage() {
+  const u = state.usage?.total, p = state.usage?.pricing;
+  if (!u || !p) { $("agentUsage").textContent = "正在读取用量…"; return; }
+  $("agentUsage").innerHTML = `<h3>累计用量 · ${esc(project()?.name)}</h3><div class="usage-totals"><strong>${number(u.total_tokens)}<small>Token</small></strong><strong>${money(u.estimated_cny)}<small>统一费用预估</small></strong></div><p>输入 ${number(u.input_tokens)} · 其中缓存 ${number(u.cached_input_tokens)}<br>输出 ${number(u.output_tokens)} · ${number(u.calls)} 次引擎调用</p>${u.incomplete_calls || u.untracked_jobs ? '<p class="usage-warning">部分调用或历史任务未提供完整用量，以上仅累计已报告部分。</p>' : ''}<p class="hint">Kimi K3 / 每百万 Token：输入 ¥${p.input}、缓存命中 ¥${p.cached_input}、输出 ¥${p.output}。${esc(p.note)}<br><a href="${esc(p.source)}" target="_blank" rel="noopener noreferrer">官方价格</a> · 核对于 ${esc(p.checked_on)}</p>`;
 }
 function selectReview(id) {
   const row = state.reviews.find((r) => r.id === id);
@@ -529,86 +595,36 @@ function fileTitle(file) {
   return (
     file.name +
     (review
-      ? ` · v${review.version} · ${review.status === "pending" ? "待审核草稿" : "已审核"}`
+      ? ` · v${review.version} · ${reviewStatuses[review.status]}`
       : "")
   );
 }
 function renderTree() {
-  const pending = new Set(
-    state.reviews.filter((r) => r.status === "pending").map((r) => r.file_id),
-  );
-  const approved = new Set(
-    state.reviews.filter((r) => r.status === "approved").map((r) => r.file_id),
-  );
-  const groups = [
-    [
-      "风格 · 待审核",
-      state.files.filter((f) => f.kind === "style" && pending.has(f.id)),
-    ],
-    [
-      "风格 · 已审核",
-      state.files.filter((f) => f.kind === "style" && approved.has(f.id)),
-    ],
-    [
-      "译文 · 待审核草稿",
-      state.files.filter(
-        (f) => ["output", "edited"].includes(f.kind) && pending.has(f.id),
-      ),
-    ],
-    [
-      "译文 · 已审核",
-      state.files.filter(
-        (f) => ["output", "edited"].includes(f.kind) && approved.has(f.id),
-      ),
-    ],
-    [
-      "对照词表 · 待审核",
-      state.files.filter((f) => f.kind === "glossary" && pending.has(f.id)),
-    ],
-    [
-      "对照词表 · 已审核",
-      state.files.filter((f) => f.kind === "glossary" && approved.has(f.id)),
-    ],
-    ["指导文件", null],
-    ["参考语料", state.files.filter((f) => f.kind === "corpus")],
-    [
-      "上传文档",
-      state.files.filter(
-        (f) =>
-          ["source", "original", "manuscript"].includes(f.kind) &&
-          !f.path.startsWith("runs/"),
-      ),
-    ],
-
-    ["排版文件", state.files.filter((f) => f.kind === "typeset")],
-    ["核查与报告", state.files.filter((f) => f.kind === "report")],
-  ];
-  const closed = new Set(
-    [...$("tree").querySelectorAll("details:not([open])")].map(
-      (e) => e.dataset.group,
-    ),
-  );
-  $("tree").innerHTML = groups
-    .map(
-      ([name, files]) =>
-        `<details data-group="${name}" ${closed.has(name) ? "" : "open"}><summary>${name} ${files ? `· ${files.length}` : ""}</summary>${
-          files
-            ? files
-                .map(
-                  (f) =>
-                    `<div class="file-row"><button data-file="${f.id}" title="${esc(f.path)}">▤ ${esc(fileTitle(f))}</button><button class="pick" data-pick="${f.id}" title="附加到本次消息">＋</button>${f.kind === "corpus" ? `<button class="pick" data-remove="${f.id}" title="删除参考语料">×</button>` : ""}</div>`,
-                )
-                .join("")
-            : Object.entries(configs)
-                .filter(([id]) => id !== "style")
-                .map(
-                  ([id, label]) =>
-                    `<div class="file-row"><button data-config="${id}">▤ ${label}</button></div>`,
-                )
-                .join("")
-        }</details>`,
-    )
-    .join("");
+  const previousGroups = new Set([...$("tree").querySelectorAll("details")].map(el => el.dataset.group));
+  const closed = new Set([...$("tree").querySelectorAll("details:not([open])")].map(el => el.dataset.group));
+  const root = {folders: new Map(), files: []};
+  for (const file of state.files) {
+    let node = root;
+    const parts = file.path.split("/");
+    parts.pop();
+    for (const part of parts) {
+      if (!node.folders.has(part)) node.folders.set(part, {folders: new Map(), files: []});
+      node = node.folders.get(part);
+    }
+    node.files.push(file);
+  }
+  const fileRow = f => `<div class="file-row"><button data-file="${f.id}" title="${esc(f.path)}">▤ ${esc(fileTitle(f))}</button><button class="pick" data-pick="${f.id}" title="附加到本次任务">＋</button>${f.kind === "corpus" ? `<button class="pick" data-remove="${f.id}" title="删除参考语料">×</button>` : ""}</div>`;
+  const folderLabels = {sources: "sources · 上传文档", corpus: "corpus · 参考文档", runs: "runs · 任务文件", outputs: "outputs · 译文", styles: "styles · 翻译风格", glossaries: "glossaries · 专有名词"};
+  function folder(node, prefix = "") {
+    return [...node.folders].sort(([a], [b]) => a.localeCompare(b)).map(([name, child]) => {
+      const path = prefix + name;
+      const label = folderLabels[name] || (/^[a-f0-9]{32}$/.test(name) ? name.slice(0, 8) + "…" : name);
+      return `<details data-group="${esc(path)}" ${closed.has(path) || (!previousGroups.has(path) && !prefix && name === "runs") ? "" : "open"}><summary title="${esc(path)}">${esc(label)}</summary>${folder(child, path + "/")}</details>`;
+    }).join("") + node.files.map(fileRow).join("");
+  }
+  $("tree").innerHTML = folder(root) || '<p class="empty">文档库为空，请先上传文件</p>';
+  $("libraryCount").textContent = state.files.length;
+  $("resources").innerHTML = `<details open><summary>翻译风格</summary>${state.files.filter(f => f.kind === "style").map(fileRow).join("") || '<p class="empty">通过“学习”积累翻译风格</p>'}<div class="file-row"><button data-config="requirements">用户要求.md</button></div></details><details open><summary>专有名词</summary>${state.files.filter(f => f.kind === "glossary").map(fileRow).join("") || '<p class="empty">上传专有名词表以积累翻译对照</p>'}<details><summary>已有术语与人名</summary>${Object.entries(configs).filter(([id]) => ["terms", "mappings", "people"].includes(id)).map(([id, label]) => `<div class="file-row"><button data-config="${id}">${label}</button></div>`).join("")}</details></details>`;
   $("tree").insertAdjacentHTML(
     "beforeend",
     `<details data-group="任务记录"><summary>任务记录 · 点击加载</summary>${state.artifacts.map((a) => `<div class="file-row"><button data-artifact="${esc(a.path)}" title="${esc(a.path)}">▤ ${esc(a.name)} · ${esc(a.path.split("/")[1].slice(0, 6))}</button></div>`).join("")}</details>`,
@@ -663,21 +679,21 @@ function renderTree() {
       reportError(e);
     }
   };
-  $("tree")
+  $("libraryDialog")
     .querySelectorAll("[data-file]")
     .forEach(
       (el) =>
         (el.onclick = () =>
           openFile(el.dataset.file).catch((e) => reportError(e))),
     );
-  $("tree")
+  $("libraryDialog")
     .querySelectorAll("[data-config]")
     .forEach(
       (el) =>
         (el.onclick = () =>
           openConfig(el.dataset.config).catch((e) => reportError(e))),
     );
-  $("tree")
+  $("libraryDialog")
     .querySelectorAll("[data-pick]")
     .forEach(
       (el) =>
@@ -686,7 +702,7 @@ function renderTree() {
           renderAttachments();
         }),
     );
-  $("tree")
+  $("libraryDialog")
     .querySelectorAll("[data-remove]")
     .forEach(
       (el) =>
@@ -708,14 +724,51 @@ function renderTree() {
         }),
     );
 }
+function renderConsistencySource() {
+  const previousSource = $("consistencySource").value;
+  $("consistencySource").innerHTML = '<option value="">自动使用项目译文的原文</option>' + state.files.filter(f => ["source", "corpus", "original", "manuscript"].includes(f.kind) && !f.path.startsWith("runs/")).map(f => `<option value="${f.id}">${esc(f.name)}</option>`).join("");
+  if (state.files.some(f => f.id === previousSource)) $("consistencySource").value = previousSource;
+}
+function showTaskWarning(message) {
+  $('taskWarning').textContent = message ? '⚠ ' + message : '';
+  $('taskWarning').hidden = !message;
+}
+function validateTask() {
+  if (!state.pid) throw new Error('请先创建或选择 Agent');
+  if (state.uploads.get(state.pid)?.active) throw new Error('文件仍在上传或解析，请完成后选择任务');
+  if (state.kind === 'chat') return;
+  let ids = [...state.selected].filter(([, role]) => state.kind === 'glossary' || role === 'document').map(([id]) => id);
+  if (!ids.length) throw new Error(`“${labels[state.kind]}”需要文档，请先上传文件或从文档库附加`);
+  if (ids.some(id => !state.files.some(f => f.id === id))) throw new Error('所选文件已不存在，请重新从文档库附加');
+  if (['layout', 'consistency', 'glossary'].includes(state.kind) && ids.length !== 1) throw new Error('本次任务请选择一份文档');
+  if (state.kind === 'layout' && ids.some(id => {
+    const file = state.files.find(f => f.id === id), review = state.reviews.find(r => r.file_id === id);
+    return (review || ['output', 'edited', 'style', 'glossary'].includes(file.kind)) && review?.status !== 'approved';
+  })) throw new Error('请先审核通过所选产出，再进行排版');
+}
+async function launchTemplate(kind) {
+  if (state.busy) return;
+  setTask(kind);
+  try {
+    validateTask();
+    showTaskWarning('');
+    if (['translate', 'layout', 'consistency'].includes(kind)) openTaskOptions();
+    else await submitTask();
+  } catch (e) { showTaskWarning(e.message); }
+}
 function setTask(kind) {
+  showTaskWarning("");
   state.kind = kind;
   state.reviewTarget = null;
   $("reviewTarget").hidden = true;
   renderStyleChoice();
   const template = state.templates.find((t) => t.id === kind);
   $("prompt").value = template?.prompt || "";
-  $("preset").hidden = kind !== "layout";
+  $("presetLabel").hidden = kind !== "layout";
+  $("consistencySourceLabel").hidden = kind !== "consistency";
+  renderConsistencySource();
+  $("taskOptions").hidden = !["layout", "translate", "consistency"].includes(kind);
+  renderTaskSummary();
   $("clearTask").hidden = kind === "chat";
   $("templates")
     .querySelectorAll("button")
@@ -726,18 +779,9 @@ function updateScope() {
   const selected = [...state.selected].filter(
     ([, role]) => role === "document",
   );
-  const latestReview = state.reviews
-    .filter((r) => r.kind === "translation" && r.status === "approved")
-    .sort((a, b) => b.approved - a.approved)[0];
-  const latest = state.files.find((f) => f.id === latestReview?.file_id);
-  $("scope").textContent =
-    !selected.length && ["layout", "factcheck"].includes(state.kind)
-      ? latest
-        ? `本次默认使用最新已审核译文：${latest.name}`
-        : "请上传或选择本次处理的文档"
-      : state.kind === "translate"
-        ? "仅处理所选文档 · 使用已选风格及已审核对照词表（如有）"
-        : "仅处理本次附加或明确选中的文件";
+  $("scope").textContent = !selected.length
+    ? "请上传文件，或从文档库、产出和对话历史附加本次处理的文件"
+    : "仅处理本次附加的文件 · 提交后附件区清空";
 }
 function renderAttachments() {
   $("attachments").innerHTML = [...state.selected]
@@ -770,7 +814,7 @@ function previewAllowed() {
   return !state.preview?.dirty || confirm("放弃未保存的编辑？");
 }
 function showPreview() {
-  $("app").classList.add("preview-open");
+  if (!$("previewDialog").open) $("previewDialog").showModal();
   $("preview").hidden = false;
   $("previewName").textContent = state.preview.name;
   $("historyButton").hidden = !state.preview.config;
@@ -779,8 +823,31 @@ function showPreview() {
   const review = state.reviews.find(
     (r) => state.preview.download === base() + `/files/${r.file_id}/download`,
   );
-  $("reviseVersion").hidden = !review;
-  $("reviseVersion").onclick = () => review && selectReview(review.id);
+  $("reviseVersion").hidden = !review || !["style", "glossary", "translation"].includes(review.kind);
+  $("reviseVersion").onclick = () => { if (review) { closePreview(); selectReview(review.id); } };
+  $("translationReviewActions").hidden = state.preview.type !== "comparison" || review?.status !== "pending";
+  $("approveTranslation").disabled = !state.preview.paragraphs?.length;
+  for (const [id, action] of [["approveTranslation", "approve"], ["ignoreTranslation", "ignore"]]) {
+    $(id).onclick = async () => {
+      const preview = state.preview, generation = state.generation, url = base();
+      $("approveTranslation").disabled = true;
+      $("ignoreTranslation").disabled = true;
+      try {
+        await api(url + `/reviews/${review.id}/${action}`, {method: "POST", body: "{}"});
+        if (generation !== state.generation) return;
+        if (state.preview === preview) closePreview();
+        await refresh();
+        toast(action === "approve" ? "译文已人工审核通过" : "已忽略，文件和历史记录保留");
+      } catch (e) { reportError(e); }
+      finally {
+        if (state.preview === preview) {
+          $("approveTranslation").disabled = !preview.paragraphs?.length;
+          $("ignoreTranslation").disabled = false;
+        }
+      }
+    };
+  }
+  $("ignoreTranslation").disabled = false;
   renderPreview(false, false);
 }
 async function openFile(id) {
@@ -788,7 +855,15 @@ async function openFile(id) {
   const generation = state.generation;
   const request = ++state.previewRequest;
   const file = state.files.find((f) => f.id === id);
-  const data = await api(base() + `/files/${id}/preview`);
+  const review = state.reviews.find(r => r.file_id === id);
+  let data;
+  if (review?.kind === "translation") {
+    try {
+      data = {...await api(base() + `/files/${id}/comparison`), type: "comparison"};
+    } catch (e) {
+      data = {type: "comparison", paragraphs: [], error: e.message};
+    }
+  } else data = await api(base() + `/files/${id}/preview`);
   if (generation !== state.generation || request !== state.previewRequest)
     return;
   state.preview = {
@@ -826,7 +901,7 @@ function closePreview(force = false) {
   state.preview = null;
   $("previewBody").replaceChildren();
   $("preview").hidden = true;
-  $("app").classList.remove("preview-open");
+  $("previewDialog").close();
   $("tree").hidden = false;
 }
 function captureEdit() {
@@ -842,8 +917,19 @@ function renderPreview(source, capture = true) {
   p.source = source;
   $("sourceTab").classList.toggle("active", source);
   $("renderTab").classList.toggle("active", !source);
-  $("sourceTab").hidden = ["pdf", "document"].includes(p.type);
+  $("sourceTab").hidden = ["pdf", "document", "comparison"].includes(p.type);
   const body = $("previewBody");
+  $("renderTab").textContent = p.type === "comparison" ? "原文对照" : "预览";
+  if (p.type === "comparison") {
+    if (!p.paragraphs.length) {
+      body.innerHTML = `<p role="alert">暂时无法展示原文对照：${esc(p.error || "缺少段落对应记录")}。请下载核对；当前窗口暂不能审核通过。</p>`;
+      return;
+    }
+    const texts = (values, fallback) => (values || [fallback || ""]).map(text => `<p class="doc-paragraph">${esc(text)}</p>`).join("");
+    body.innerHTML = `<div class="comparison-heading"><strong>原文 · ${esc(p.source_name)}</strong><strong>译文 · 当前版本</strong></div>` +
+      p.paragraphs.map((row, i) => `<section class="comparison-group" aria-label="第 ${i + 1} 组"><div class="comparison-source"><small>原文 · 第 ${i + 1} 组</small>${texts(row.original_paragraphs, row.original)}</div><div class="comparison-target"><small>译文 · 第 ${i + 1} 组</small>${texts(row.translations, row.translation)}</div>${row.reason ? `<p class="comparison-reason">段落调整：${esc(row.reason)}</p>` : ""}</section>`).join("");
+    return;
+  }
   if (p.type === "pdf") {
     body.innerHTML = `<iframe title="PDF 预览" src="${esc(p.url)}"></iframe>`;
     return;
@@ -1004,7 +1090,7 @@ async function loadCreateModels(reset = false) {
       .join("");
     $("createModel").value = (data.models || []).includes(previous)
       ? previous
-      : data.default_model || "";
+      : (data.models || [])[0] || "";
     $("createModelsStatus").textContent =
       data.warning || `已从 Agent 获取 ${(data.models || []).length} 个模型`;
   } catch (error) {
@@ -1020,11 +1106,24 @@ async function loadCreateModels(reset = false) {
     }
   }
 }
+let recommendedName = "";
+function suggestAgentName() {
+  const input = $("createForm").elements.name;
+  if (input.value && input.value !== recommendedName) return;
+  const language = $("createForm").elements.target_language.value === "en" ? "英译" : "中译";
+  const engine = $("createAgent").selectedOptions[0].textContent;
+  const baseName = `${engine} · ${language}助手`;
+  let name = baseName, n = 2;
+  while (state.projects.some(p => p.name === name)) name = `${baseName} ${n++}`;
+  input.value = recommendedName = name;
+}
 listen("newWorkspace", "click", () => {
+  suggestAgentName();
   $("createDialog").showModal();
   return loadCreateModels(true);
 });
-listen("createAgent", "change", () => loadCreateModels(true));
+listen("createAgent", "change", () => { suggestAgentName(); return loadCreateModels(true); });
+$("createForm").elements.target_language.addEventListener("change", suggestAgentName);
 listen("refreshCreateModels", "click", () => loadCreateModels());
 document
   .querySelectorAll("[data-close]")
@@ -1053,15 +1152,19 @@ listen("model", "change", async () => {
   if (generation !== state.generation) return;
   toast("模型已更新，运行中任务继续使用原模型");
 });
-listen("settings", "click", () => {
+listen("settings", "click", async () => {
   if (state.pid) {
     $("deleteName").value = "";
     $("settingsDialog").showModal();
+    renderAgentUsage();
+    const generation = state.generation;
+    const usage = await api(base() + "/usage");
+    if (generation === state.generation) { state.usage = usage; renderAgentUsage(); }
   }
 });
 listen("deleteWorkspace", "click", async () => {
   if ($("deleteName").value !== project()?.name)
-    throw new Error("请输入完整工作空间名称");
+    throw new Error("请输入完整Agent 名称");
   await api(base(), {
     method: "DELETE",
     body: JSON.stringify({ name: $("deleteName").value }),
@@ -1071,7 +1174,7 @@ listen("deleteWorkspace", "click", async () => {
   location.reload();
 });
 listen("attach", "click", () => {
-  if (!state.pid) throw new Error("请先创建工作空间");
+  if (!state.pid) throw new Error("请先创建 Agent");
   $("fileInput").click();
 });
 function renderUploads() {
@@ -1164,7 +1267,7 @@ listen("fileInput", "change", async (e) => {
   }
 });
 listen("pickFiles", "click", () => {
-  if (!state.pid) throw new Error("请先创建工作空间");
+  if (!state.pid) throw new Error("请先创建 Agent");
   $("fileChoices").innerHTML =
     state.files
       .filter(
@@ -1190,10 +1293,11 @@ listen("pickFiles", "click", () => {
   $("filesDialog").showModal();
 });
 listen("clearTask", "click", () => setTask("chat"));
-listen("composer", "submit", async (e) => {
-  e.preventDefault();
-  if (!state.pid) throw new Error("请先创建工作空间");
-  if (state.busy || state.uploads.get(state.pid)?.active) return;
+async function submitTask() {
+  if (!state.pid) throw new Error("请先创建 Agent");
+  if (state.busy) return;
+  validateTask();
+  showTaskWarning("");
   const generation = state.generation;
   state.busy = true;
   $("send").disabled = true;
@@ -1201,6 +1305,7 @@ listen("composer", "submit", async (e) => {
     const payload = {
       kind: state.kind,
       review_id: state.reviewTarget,
+      consistency_source_id: state.kind === "consistency" ? $("consistencySource").value || null : null,
       glossary_version_id:
         state.kind === "translate" ? $("glossaryChoice").value || null : null,
       style_version_id:
@@ -1220,6 +1325,9 @@ listen("composer", "submit", async (e) => {
     });
     if (generation !== state.generation) return;
     state.selected.clear();
+    state.uploads.delete(state.pid);
+    renderUploads();
+    $("consistencySource").value = "";
     renderAttachments();
     setTask("chat");
     await refresh();
@@ -1230,12 +1338,32 @@ listen("composer", "submit", async (e) => {
       renderUploads();
     }
   }
-});
-listen("toggleTree", "click", () => {
-  if (state.preview) $("tree").hidden = !$("tree").hidden;
-  else $("pickFiles").click();
-});
+}
+listen("composer", "submit", async e => { e.preventDefault(); try { await submitTask(); } catch (e) { showTaskWarning(e.message); } });
+listen("toggleTree", "click", refresh);
 listen("closePreview", "click", () => closePreview());
+listen("previewDialog", "cancel", e => { e.preventDefault(); closePreview(); });
+
+let taskOptionSnapshot;
+function renderTaskSummary() {
+  const selections = state.kind === "layout" ? [$("preset").selectedOptions[0]?.textContent] : state.kind === "translate" ? [$("styleChoice").selectedOptions[0]?.textContent, $("glossaryChoice").selectedOptions[0]?.textContent] : state.kind === "consistency" ? [$("consistencySource").selectedOptions[0]?.textContent] : [];
+  $("taskSummary").textContent = selections.filter(Boolean).join(" · ");
+  $("taskSummary").hidden = !selections.length;
+}
+function openTaskOptions() {
+  taskOptionSnapshot = [$("preset").value, $("styleChoice").value, $("glossaryChoice").value, $("consistencySource").value];
+  $("taskDialogTitle").textContent = labels[state.kind] + " · 任务选项";
+  $("taskDialogHint").textContent = state.kind === "layout" ? "选择排版样式，结果将作为未审核产出保存。" : state.kind === "consistency" ? "附加一份待检查译文。项目译文自动关联原文；外部译文请从文档库选择原文。仅生成报告，不改写文档。" : "选择已审核的翻译资源，用于本次翻译。";
+  $("taskDialog").showModal();
+}
+listen("taskOptions", "click", openTaskOptions);
+listen("confirmTaskOptions", "click", async () => { renderTaskSummary(); $("taskDialog").close(); try { await submitTask(); } catch (e) { showTaskWarning(e.message); } });
+function cancelTaskOptions() {
+  if (taskOptionSnapshot) ["preset", "styleChoice", "glossaryChoice", "consistencySource"].forEach((id, i) => $(id).value = taskOptionSnapshot[i]);
+  renderTaskSummary(); $("taskDialog").close();
+}
+listen("cancelTaskOptions", "click", cancelTaskOptions);
+listen("taskDialog", "cancel", e => { e.preventDefault(); cancelTaskOptions(); });
 listen("renderTab", "click", () => renderPreview(false));
 listen("sourceTab", "click", () => renderPreview(true));
 listen("saveConfig", "click", async () => {
@@ -1313,7 +1441,7 @@ async function start() {
     .join("");
   $("templates")
     .querySelectorAll("button")
-    .forEach((el) => (el.onclick = () => setTask(el.dataset.kind)));
+    .forEach((el) => (el.onclick = () => launchTemplate(el.dataset.kind)));
   await loadProjects();
   const saved = localStorage.getItem("transmux-v2-workspace");
   if (state.projects.length)
@@ -1322,3 +1450,51 @@ async function start() {
     );
 }
 start().catch((e) => reportError(e));
+
+// Keep the library entries beneath the Agent; show their content only in a dialog.
+libraryElement.querySelectorAll('[data-library]').forEach(button => button.onclick = () => {
+  const documents = button.dataset.library === 'documents';
+  $('libraryTitle').textContent = `${project()?.name || 'Agent'} · ${documents ? '文档库' : '翻译资源库'}`;
+  $('tree').hidden = !documents;
+  $('resources').hidden = documents;
+  $('libraryDialog').showModal();
+});
+let styleRuleReview = null;
+async function openStyleRules(rid) {
+  const generation = state.generation;
+  const review = await api(base() + `/reviews/${rid}`);
+  if (generation !== state.generation) return;
+  const entries = review.entries ? JSON.parse(review.entries) : [{id: 'legacy', text: review.content, evidence: []}];
+  styleRuleReview = {rid, generation, structured: !!review.entries};
+  $('styleRulesList').innerHTML = entries.map(row => `<article class="style-rule"><label><input type="checkbox" data-style-rule="${esc(row.id)}" checked><strong>${esc(row.text)}</strong></label>${row.evidence.map(e => `<div class="style-evidence"><span>${esc(e.source)} · 段落 ${esc(e.paragraph)}</span><blockquote>${esc(e.quote)}</blockquote></div>`).join('') || '<p class="hint">历史风格未记录逐条出处，请核对后确认。</p>'}</article>`).join('');
+  $('selectAllStyleRules').checked = true;
+  $('selectAllStyleRules').indeterminate = false;
+  $('approveStyleRules').disabled = false;
+  $('styleRulesList').onchange = updateRuleSelection;
+  $('styleRulesDialog').showModal();
+}
+function updateRuleSelection() {
+  const rows = [...$('styleRulesList').querySelectorAll('[data-style-rule]')];
+  const count = rows.filter(el => el.checked).length;
+  $('selectAllStyleRules').checked = count === rows.length;
+  $('selectAllStyleRules').indeterminate = count > 0 && count < rows.length;
+  $('approveStyleRules').disabled = !count;
+}
+$('selectAllStyleRules').onchange = () => {
+  $('styleRulesList').querySelectorAll('[data-style-rule]').forEach(el => el.checked = $('selectAllStyleRules').checked);
+  updateRuleSelection();
+};
+$('approveStyleRules').onclick = async () => {
+  const current = styleRuleReview;
+  if (!current || current.generation !== state.generation) return;
+  const ids = [...$('styleRulesList').querySelectorAll('[data-style-rule]:checked')].map(el => el.dataset.styleRule);
+  if (!ids.length) return;
+  $('approveStyleRules').disabled = true;
+  try {
+    await api(base() + `/reviews/${current.rid}/approve`, {method: 'POST', body: JSON.stringify(current.structured ? {selected_rule_ids: ids} : {})});
+    if (current.generation !== state.generation) return;
+    $('styleRulesDialog').close();
+    await refresh();
+    toast('已生成审核通过的翻译风格 Markdown');
+  } catch (e) { reportError(e); $('approveStyleRules').disabled = false; }
+};

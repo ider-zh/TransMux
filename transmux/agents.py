@@ -181,6 +181,8 @@ class AgentRunner:
             stderr=asyncio.subprocess.PIPE, start_new_session=True, limit=4 * 1024 * 1024)
         result = ""
         failure = None
+        from .usage import UsageCall
+        usage = UsageCall(self.store, pid, jid, project['agent'])
 
         async def stdout():
             nonlocal result, failure
@@ -193,6 +195,7 @@ class AgentRunner:
                     continue
                 if not isinstance(event, dict):
                     continue
+                usage.consume(event)
                 kind = event.get("type", "event")
                 session = event.get("thread_id") if kind == "thread.started" else event.get("session_id")
                 if session and not isolated:

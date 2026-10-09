@@ -84,6 +84,8 @@ class Store:
         """)
         if "progress" not in {row[1] for row in self.db.execute("PRAGMA table_info(jobs)")}:
             self.execute("ALTER TABLE jobs ADD COLUMN progress TEXT")
+        from .usage import initialize
+        initialize(self)
         for project in self.rows("SELECT id FROM projects"):
             if (self.root / "projects" / project["id"]).is_dir():
                 self.ensure_terminology(project["id"])
@@ -425,7 +427,7 @@ Do not change corpus/, sources/, rag/, or run input snapshots.
             raise ValueError("请输入完整的工作空间名称以确认删除")
         self.require_idle(pid)
         statements = [(f"DELETE FROM {table} WHERE project=?", (pid,))
-                      for table in ("layout_exports", "comparisons", "config_history", "events", "jobs", "files")]
+                      for table in ("agent_usage", "layout_exports", "comparisons", "config_history", "events", "jobs", "files")]
         statements.append(("DELETE FROM projects WHERE id=?", (pid,)))
         self.remove_data([self.workspace(pid), self.root / "published" / pid, self.root / "exports" / pid], statements)
 

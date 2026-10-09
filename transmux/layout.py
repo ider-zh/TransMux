@@ -143,8 +143,27 @@ async def export_original(worker, job, payload):
             worker.phase(job, 'export_layout', '应用 ' + PRESETS[template]['name'], '识别文档结构，应用标题、正文、题注与双栏格式')
             original = staging / 'input.docx'
             docx.rename(original)
-            details = await worker.blocking(apply_preset, original, docx, template, payload.get('roles'), payload.get('source_sha256'))
-        if details and hasattr(worker, "format_citations"):
+            roles, expected = payload.get('roles'), payload.get('source_sha256')
+            semantic = None
+            formatted_source = original
+            if hasattr(worker, 'semantic_layout'):
+                formatted_source = staging / 'semantic.docx'
+                semantic = await worker.semantic_layout(job, original, formatted_source, template)
+                roles = semantic['roles_after_render']
+                expected = hashlib.sha256(formatted_source.read_bytes()).hexdigest()
+            details = await worker.blocking(apply_preset, formatted_source, docx, template, roles, expected)
+            if semantic is not None:
+                from .semantic_layout import report
+                details['semantic_layout'] = semantic
+                details['findings'] = [f for f in details['findings'] if f.get('code') != 'references_pending']
+                details['findings'] += [{'code': 'semantic_review', 'message': item} for item in semantic['issues']]
+                if semantic['uncited']:
+                    details['findings'].append({'code': 'uncited_references', 'message': f"{len(semantic['uncited'])} 条参考文献未找到正文锚点，已保留在末尾。"})
+                if semantic['unresolved']:
+                    details['findings'].append({'code': 'unresolved_anchors', 'message': f"{len(semantic['unresolved'])} 条引文锚点需人工复核，详见处理报告。"})
+                details['checks'][0]['message'] = '非引文正文和原对象保留；原文锚点按已校验位置改写，所有参考文献均保留。'
+                atomic_write(staging / 'layout-report.md', report(semantic))
+        if details and "semantic_layout" not in details and hasattr(worker, "format_citations"):
             citation_result = await worker.format_citations(job, docx, payload, details)
             details["citation_formatting"] = citation_result
             details["checks"][0]["message"] = '正文保留；仅允许锚定的引文标记与已有参考文献信息的呈现调整。'

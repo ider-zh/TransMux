@@ -248,5 +248,16 @@
       "<w:cols xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:num=\"2\" w:space=\"400\"/>",
       "<w:docGrid xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" w:linePitch=\"360\"/>"
     ]
-  ]
+  ],
+  "citations": {
+    "version": 1,
+    "numbering": "first-appearance",
+    "retain_uncited": true,
+    "uncited_order": "source-order",
+    "marker": "brackets",
+    "group_separator": "], [",
+    "reference_style": "ieee",
+    "guidelines_url": "https://ieeeaccess.ieee.org/authors/submission-guidelines/",
+    "verified_on": "2026-10-08"
+  }
 }

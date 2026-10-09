@@ -139,7 +139,8 @@ def test_approval_scope_chat_revision_and_downstream_gate(tmp_path, monkeypatch)
         assert client.post(base + f'/reviews/{versions[0]["id"]}/approve').status_code == 200
         # New style approval does not invalidate the existing translation.
         assert client.get(base + f'/reviews/{review["id"]}').json()['status'] == 'approved'
-        layout = client.post(base + '/messages', json={'kind': 'layout'}).json()
+        assert client.post(base + '/messages', json={'kind': 'layout'}).status_code == 400
+        layout = client.post(base + '/messages', json={'kind': 'layout', 'file_ids': [fid]}).json()
         assert json.loads(layout['payload'])['file_ids'] == [fid]
         assert finished(client, pid, layout['id'])['state'] == 'succeeded'
         external = client.post(base + '/messages', json={'kind': 'layout', 'file_ids': [source['id']]}).json()

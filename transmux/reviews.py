@@ -40,6 +40,18 @@ class ReviewStore:
                     self.register_review(pid, 'translation', file['name'], file['id'])
             self.execute('INSERT OR IGNORE INTO review_migrations VALUES (?)', (pid,))
 
+        # Earlier learners already saved evidence beside their draft. Reuse it for pending reviews.
+        for row in self.rows("SELECT * FROM human_reviews WHERE kind='style' AND status='pending' AND entries IS NULL AND job IS NOT NULL"):
+            path = self.workspace(row['project']) / 'runs' / row['job'] / 'style-rule-evidence.json'
+            try:
+                rules = json.loads(path.read_text())
+            except (OSError, ValueError):
+                continue
+            if not isinstance(rules, list) or not rules or any(not isinstance(r, dict) or not isinstance(r.get('text'), str) or not isinstance(r.get('evidence'), list) or not r['evidence'] for r in rules):
+                continue
+            self.execute('UPDATE human_reviews SET entries=? WHERE id=?',
+                         (json.dumps([dict(r, id=str(i + 1)) for i, r in enumerate(rules)], ensure_ascii=False), row['id']))
+
     def review(self, pid, rid):
         rows = self.rows('SELECT * FROM human_reviews WHERE project=? AND id=?', (pid, rid))
         if not rows:
@@ -79,6 +91,17 @@ class ReviewStore:
         fid = self.add_file(pid, name + '.md', 'style', path)
         return self.register_review(pid, 'style', name, fid, content, job, parent)
 
+    def create_style_rules(self, pid, name, rules, job=None, parent=None):
+        if not rules:
+            raise ValueError('没有可审核的有据风格规则，请补充参考文档')
+        entries = [dict(row, id=str(i + 1)) for i, row in enumerate(rules)]
+        content = json.dumps(entries, ensure_ascii=False, indent=2)
+        path = self.workspace(pid) / 'styles' / (uid() + '.json')
+        path.parent.mkdir(exist_ok=True)
+        atomic_write(path, content)
+        fid = self.add_file(pid, name + ' · 待审核规则.json', 'style', path)
+        return self.register_review(pid, 'style', name, fid, job=job, parent=parent, entries=entries)
+
     def create_glossary(self, pid, name, rows, job=None, parent=None):
         from .glossary_documents import validate_entries, markdown
         rows = validate_entries(rows)
@@ -95,11 +118,38 @@ class ReviewStore:
             AND NOT EXISTS (SELECT 1 FROM human_reviews n WHERE n.root=r.root AND n.status='approved' AND n.version>r.version)
             ORDER BY created DESC""", (pid,))
 
-    def approve_review(self, pid, rid):
+    def approve_review(self, pid, rid, selected_rule_ids=None):
         row = self.review(pid, rid)
+        if row['status'] == 'ignored':
+            raise ConfigConflict('该产出已忽略，请先恢复审核')
         file = self.file(pid, row['file_id'])
         if hashlib.sha256(self.download_path(pid, file).read_bytes()).hexdigest() != row['digest']:
             raise ConfigConflict('文件内容已变化，请重新生成审核版本')
+        if row['kind'] == 'style' and row['entries'] and row['status'] != 'approved':
+            entries = json.loads(row['entries'])
+            available = {r['id'] for r in entries}
+            if not selected_rule_ids or len(set(selected_rule_ids)) != len(selected_rule_ids) or not set(selected_rule_ids) <= available:
+                raise ValueError('请至少选择一条有效风格规则')
+            selected = set(selected_rule_ids)
+            content = '# Translation Style\n\n' if self.project(pid)['target_language'] == 'en' else '# 翻译风格\n\n'
+            content += '\n\n'.join('- ' + r['text'] for r in entries if r['id'] in selected)
+            error = guidance_language_error(content, self.project(pid)['target_language'], required=True)
+            if error:
+                raise ValueError(error)
+            newer = self.rows("SELECT id FROM human_reviews WHERE root=? AND version>? AND status='approved'", (row['root'], row['version']))
+            if newer:
+                raise ConfigConflict('已有更新的已审核版本')
+            path = self.workspace(pid) / 'styles' / (rid + '.md')
+            atomic_write(path, content)
+            for entry in entries:
+                entry['selected'] = entry['id'] in selected
+            with self.db:
+                self.db.execute('UPDATE files SET path=?,name=? WHERE project=? AND id=?',
+                                (str(path.relative_to(self.workspace(pid))), row['name'] + '.md', pid, row['file_id']))
+                self.db.execute("UPDATE human_reviews SET content=?,entries=?,digest=?,status='approved',approved=? WHERE project=? AND id=?",
+                                (content, json.dumps(entries, ensure_ascii=False), hashlib.sha256(content.encode()).hexdigest(), time.time(), pid, rid))
+            self.event(pid, row['job'], 'progress', f"已认可 {len(selected)} 条规则并生成翻译风格 Markdown")
+            return self.review(pid, rid)
         if row['kind'] == 'style':
             error = guidance_language_error(row['content'], self.project(pid)['target_language'], required=True)
             if error:
@@ -111,6 +161,16 @@ class ReviewStore:
             self.execute("UPDATE human_reviews SET status='approved',approved=? WHERE project=? AND id=? AND status='pending'",
                          (time.time(),pid,rid))
             self.event(pid, row['job'], 'progress', f"{row['name']} · v{row['version']} 人工审核通过")
+        return self.review(pid, rid)
+
+    def ignore_review(self, pid, rid, restore=False):
+        row = self.review(pid, rid)
+        if row['status'] == 'approved':
+            raise ConfigConflict('已审核通过的产出不能忽略')
+        status = 'pending' if restore else 'ignored'
+        if row['status'] != status:
+            self.execute('UPDATE human_reviews SET status=? WHERE project=? AND id=?', (status, pid, rid))
+            self.event(pid, row['job'], 'progress', f"{row['name']} · {'恢复审核' if restore else '已忽略（文件保留）'}")
         return self.review(pid, rid)
 
     def approved_styles(self, pid):

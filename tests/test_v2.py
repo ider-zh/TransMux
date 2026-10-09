@@ -16,6 +16,13 @@ class Runner(FakeRunner):
     async def run_isolated(self, pid, jid, prompt, schema=None):
         self.calls.append((pid, jid, prompt, schema))
         properties = schema['properties'] if schema else {}
+        if 'blocks' in properties:
+            data = json.loads(prompt.rsplit('\n', 1)[-1])
+            return {'blocks': [{'id': b['id'], 'role': b['role']} for b in data['blocks']]}
+        if 'references' in properties:
+            return {'references': []}
+        if 'anchors' in properties:
+            return {'anchors': [], 'unresolved': [], 'non_citations': []}
         if 'findings' in properties:
             if getattr(self, 'store', None):
                 self.store.event(pid, jid, 'agent', json.dumps({'type': 'item.completed', 'item': {'type': 'web_search'}}))
@@ -82,7 +89,7 @@ def test_fresh_workspace_scope_fact_followup_and_versions(tmp_path, monkeypatch)
         assert review['status'] == 'pending'
         assert client.post(f'/api/projects/{pid}/messages', json={'kind': 'factcheck', 'file_ids': [translated]}).status_code == 409
         assert client.post(f"/api/projects/{pid}/reviews/{review['id']}/approve").status_code == 200
-        check = client.post(f'/api/projects/{pid}/messages', json={'kind': 'factcheck'}).json()
+        check = client.post(f'/api/projects/{pid}/messages', json={'kind': 'factcheck', 'file_ids': [translated]}).json()
         assert json.loads(check['payload'])['file_ids'] == [translated]
         checked = finished(client, pid, check['id'])
         assert checked['state'] == 'succeeded', checked

@@ -63,7 +63,7 @@ class DeleteProjectInput(BaseModel):
 
 class JobInput(Input):
     kind: Literal["style", "rag", "recall", "translate", "chat", "revise", "layout", "terminology_review"]
-    template: Literal["original", "ieee-access", "jcst"] = "original"
+    template: Literal["original", "ieee-access", "jcst", "jcst-submit"] = "original"
     source_sha256: str | None = Field(default=None, pattern=r'^[a-f0-9]{64}$')
     roles: dict[str, str] = Field(default_factory=dict, max_length=3000)
 
@@ -421,7 +421,7 @@ def create_app(root=None, worker_factory=Worker, *, store_factory=Store, configu
     async def download(pid: str, fid: str):
         file = store().file(pid, fid)
         review = store().review_for_file(pid, fid) if hasattr(store(), "review_for_file") else None
-        name = ("待审核草稿-" if review and review["status"] == "pending" else "") + file["name"]
+        name = ("未审核草稿-" if review and review["status"] != "approved" else "") + file["name"]
         return FileResponse(store().download_path(pid, file), filename=name)
 
     @app.get("/api/projects/{pid}/artifacts")

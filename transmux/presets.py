@@ -16,7 +16,7 @@ from lxml import etree
 
 
 TEMPLATES = {key: json.loads((Path(__file__).parent / 'templates' / (key + '.json')).read_text())
-             for key in ('ieee-access', 'jcst')}
+             for key in ('ieee-access', 'jcst', 'jcst-submit')}
 PRESETS = {key: {name: value for name, value in data.items() if name not in ('rules', 'sections')}
            for key, data in TEMPLATES.items()}
 ACCESS, JCST = PRESETS['ieee-access'], PRESETS['jcst']
@@ -214,7 +214,7 @@ def apply_preset(source, output, template, overrides=None, expected=None):
             # Exact line height can clip objects. Prefer preservation and flag manual review.
             props.get_or_add_spacing().set(qn('w:lineRule'), 'atLeast')
             props.get_or_add_spacing().set(qn('w:line'), '240')
-        heading_number = r'^\d+(?:\.\d+)*\.?\s+' if template == 'jcst' else r'^(?:[IVXLCDM]+\.|[A-Z]\.|\d+[.)])\s'
+        heading_number = r'^\d+(?:\.\d+)*\.?\s+' if template.startswith('jcst') else r'^(?:[IVXLCDM]+\.|[A-Z]\.|\d+[.)])\s'
         if role.startswith('heading') and not re.match(heading_number, row['text']):
             issue('heading_number', f'标题编号沿用原稿，请核对 {label} 的层级编号。', row)
 
@@ -260,6 +260,8 @@ def apply_preset(source, output, template, overrides=None, expected=None):
         body.insert(cut, p)
     required = {'title':'标题', 'authors':'作者', 'affiliation':'作者机构', 'abstract':'摘要', 'keywords':'关键词',
                 'reference_heading':'参考文献部分', 'biography':'作者简介'}
+    if template == 'jcst-submit':
+        required.pop('biography')
     present = {row['role'] for row in data['blocks']}
     for role, label in required.items():
         if role not in present:

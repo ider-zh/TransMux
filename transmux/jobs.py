@@ -169,7 +169,7 @@ class Worker:
             payload["use_rag"] = bool(project["use_rag"])
         job["payload"] = json.dumps(payload, ensure_ascii=False)
         self.store.execute("UPDATE jobs SET payload=? WHERE id=?", (job["payload"], jid))
-        self.store.execute("UPDATE jobs SET state='running' WHERE id=?", (jid,))
+        self.store.execute("UPDATE jobs SET state='running',usage_tracking=1 WHERE id=?", (jid,))
         self.phase(job, "preparing", "准备中", "正在读取项目配置与任务文件")
         try:
             result = await self.perform(job)

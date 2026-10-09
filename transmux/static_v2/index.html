@@ -3,18 +3,22 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>TransMux · Workspace</title>
+    <title>TransMux · Agents</title>
     <link rel="stylesheet" href="/style.css" />
   </head>
   <body>
     <div id="app">
       <aside class="sidebar">
-        <a class="brand" href="/">TransMux <span>workspace</span></a
+        <a class="brand" href="/">TransMux <span>agents</span></a
         ><button id="newWorkspace" class="new-workspace">
-          ＋ New Workspace
+          ＋ New Agent
         </button>
-        <div class="eyebrow">工作空间</div>
-        <nav id="workspaces"></nav>
+        <div class="eyebrow">我的 AGENTS</div>
+        <nav id="workspaces" aria-label="Agent 列表"></nav>
+        <section id="agentLibrary" hidden>
+          <button type="button" data-library="documents">▤ 文档库 <span id="libraryCount"></span></button>
+          <button type="button" data-library="resources">▧ 翻译资源库</button>
+        </section>
         <footer>
           文档工作，从一次对话开始。<br /><span>翻译 · 排版 · 核查</span>
         </footer>
@@ -23,20 +27,35 @@
         <header>
           <div>
             <strong id="workspaceName">欢迎使用 TransMux</strong
-            ><small id="workspaceInfo">新建工作空间，开始处理文档</small>
+            ><small id="workspaceInfo">新建 Agent，开始处理文档</small>
           </div>
           <div class="header-actions">
+            <span id="agentStatus" class="agent-status" role="status">未选择 Agent</span>
             <label id="agentLabel" for="model">模型</label
             ><select id="model" aria-label="切换模型"></select
             ><button
               id="settings"
-              title="工作空间设置"
-              aria-label="工作空间设置"
+              title="Agent 设置"
+              aria-label="Agent 设置"
             >
               ⋯
             </button>
           </div>
         </header>
+        <div class="task-desk">
+          <section class="upload-zone" aria-label="文档上传区">
+
+            <div class="upload-actions"><button type="button" id="attach">↑ 上传文件</button><button type="button" id="pickFiles">＋ 从文档库附加</button></div>
+            <p class="hint">DOC / DOCX / PDF / TXT / Markdown · 单文件 25 MB</p>
+            <div id="uploadProgress" aria-live="polite" hidden></div>
+            <div id="attachments" class="attachments"></div>
+            <input id="fileInput" type="file" multiple accept=".doc,.docx,.pdf,.txt,.md" hidden />
+          </section>
+
+          <div id="templates" class="templates"></div>
+          <div id="taskWarning" role="alert" hidden></div>
+          <div id="referenceHint" class="hint" hidden>上传参考文档，选择“学习”，积累 Agent 的翻译风格。</div>
+        </div>
         <div id="feed" class="feed" aria-live="polite">
           <div class="welcome">
             <div class="mark">T</div>
@@ -45,48 +64,19 @@
           </div>
         </div>
         <div class="composer-area">
-          <div id="templates" class="templates"></div>
-          <div id="referenceHint" class="hint" hidden>
-            尚未学习参考语料。上传目标语言文档，可先提取翻译风格。
-          </div>
           <form id="composer">
-            <div id="uploadProgress" aria-live="polite" hidden></div>
             <div id="reviewTarget" class="hint" hidden></div>
-            <label id="styleChoiceLabel" hidden
-              >翻译风格
-              <select id="styleChoice" aria-label="翻译风格"></select
-            ></label>
-            <label id="glossaryChoiceLabel" hidden
-              >对照词表
-              <select id="glossaryChoice" aria-label="对照词表"></select
-            ></label>
-            <div id="attachments" class="attachments"></div>
+            <div id="taskSummary" class="hint" hidden></div>
             <textarea
               id="prompt"
-              rows="3"
+              rows="2"
               placeholder="描述这次想完成的工作…"
               aria-label="任务要求"
             ></textarea>
             <div class="composer-toolbar">
-              <div>
-                <button type="button" id="attach" title="上传附件">
-                  ＋ 附件</button
-                ><button type="button" id="pickFiles">从工作区选择</button
-                ><select id="preset" aria-label="排版预设" hidden>
-                  <option value="original">保留原格式</option>
-                  <option value="jcst">JCST</option>
-                  <option value="ieee-access">IEEE Access</option></select
-                ><button type="button" id="clearTask" hidden>退出任务</button>
-              </div>
+              <div><button type="button" id="taskOptions" hidden>任务选项</button><button type="button" id="clearTask" hidden>退出任务</button></div>
               <button type="submit" id="send" class="primary">开始 ↑</button>
             </div>
-            <input
-              id="fileInput"
-              type="file"
-              multiple
-              accept=".doc,.docx,.pdf,.txt,.md"
-              hidden
-            />
           </form>
           <div class="composer-note" id="scope">
             仅处理本次附加或明确选中的文件
@@ -94,13 +84,23 @@
         </div>
       </main>
       <aside class="workspace">
-        <header>
-          <strong>工作区</strong
-          ><button id="toggleTree" aria-label="折叠文件列表">☰</button>
-        </header>
-        <div id="tree" class="tree">
-          <div class="empty">工作区文件将在这里显示</div>
-        </div>
+        <header><div><strong>产出</strong><small>每个版本，由你确认</small></div><button id="toggleTree" aria-label="刷新产出">↻</button></header>
+        <div id="outputs" class="outputs"><div class="empty">任务完成后，产出会显示在这里</div></div>
+      </aside>
+    </div>
+    <dialog id="libraryDialog" aria-labelledby="libraryTitle">
+      <h2 id="libraryTitle">文档库</h2>
+      <div id="tree" class="tree"></div><div id="resources" hidden></div>
+      <div class="dialog-actions"><button data-close>关闭</button></div>
+    </dialog>
+    <dialog id="styleRulesDialog" aria-labelledby="styleRulesTitle">
+      <h2 id="styleRulesTitle">逐条审核翻译风格</h2>
+      <p class="hint">默认全选，请保留认可的规则。仅选中规则会写入翻译风格 Markdown。</p>
+      <label><input id="selectAllStyleRules" type="checkbox" checked> 全选规则</label>
+      <div id="styleRulesList"></div>
+      <div class="dialog-actions"><button data-close>取消</button><button id="approveStyleRules" class="primary">生成翻译风格 Markdown</button></div>
+    </dialog>
+    <dialog id="previewDialog" aria-label="文档预览">
         <section id="preview" hidden>
           <div class="preview-heading">
             <strong id="previewName"></strong
@@ -115,20 +115,24 @@
             ><a id="download" download>下载 ↗</a>
           </div>
           <div id="previewBody"></div>
+          <div id="translationReviewActions" class="dialog-actions" hidden>
+            <span class="hint">对照原文检查当前译文后审核</span>
+            <button id="ignoreTranslation">忽略</button>
+            <button id="approveTranslation" class="primary">审核通过</button>
+          </div>
         </section>
-      </aside>
-    </div>
+    </dialog>
     <dialog id="createDialog">
       <form id="createForm">
-        <h2>New Workspace</h2>
+        <h2>New Agent</h2><p class="hint">每个 Agent 拥有独立的文档库、翻译资源和任务记录。</p>
         <label
-          >名称<input
+          >Agent name<input
             name="name"
             required
             maxlength="100"
             placeholder="例如：论文英译" /></label
         ><label
-          >Agent<select name="agent" id="createAgent">
+          >引擎<select name="agent" id="createAgent">
             <option value="codex">Codex</option>
             <option value="codebuddy">CodeBuddy</option>
           </select></label
@@ -147,29 +151,39 @@
           <button type="button" id="refreshCreateModels">刷新模型列表</button
           ><span id="createModelsStatus" class="hint" role="status"></span>
         </div>
-        <p class="hint">Agent 与目标语言创建后固定；模型可随时调整。</p>
+        <p class="hint">引擎与目标语言创建后固定；模型可随时调整。</p>
         <div class="dialog-actions">
           <button type="button" data-close>取消</button
-          ><button class="primary">创建工作空间</button>
+          ><button class="primary">创建 Agent</button>
         </div>
       </form>
     </dialog>
+    <dialog id="taskDialog">
+      <h2 id="taskDialogTitle">任务选项</h2>
+      <p id="taskDialogHint" class="hint"></p>
+      <label id="styleChoiceLabel" hidden>翻译风格<select id="styleChoice" aria-label="翻译风格"></select></label>
+      <label id="glossaryChoiceLabel" hidden>专有名词表<select id="glossaryChoice" aria-label="专有名词表"></select></label>
+      <label id="presetLabel" hidden>排版样式<select id="preset" aria-label="排版预设"><option value="original">保留原格式（不重写引文）</option><option value="jcst-submit">JCST · 投稿版</option><option value="jcst">JCST · 出版版</option><option value="ieee-access">IEEE Access</option></select></label>
+      <label id="consistencySourceLabel" hidden>原文<select id="consistencySource" aria-label="一致性检查原文"><option value="">自动使用项目译文的原文</option></select></label>
+      <div class="dialog-actions"><button id="cancelTaskOptions" type="button">取消</button><button id="confirmTaskOptions" class="primary" type="button">确认并开始任务</button></div>
+    </dialog>
     <dialog id="filesDialog">
-      <h2>选择本次附件</h2>
+      <h2>从文档库附加</h2>
       <div id="fileChoices"></div>
       <div class="dialog-actions"><button data-close>完成</button></div>
     </dialog>
     <dialog id="settingsDialog">
-      <h2>工作空间设置</h2>
-      <p>删除将移除这个工作空间的文件与历史。</p>
+      <h2>Agent 设置</h2>
+      <section id="agentUsage" class="usage-panel" aria-live="polite"><p>正在读取用量…</p></section>
+      <p>删除将移除这个 Agent 及其工作区的文件与历史。</p>
       <input
         id="deleteName"
-        placeholder="输入工作空间全名以确认"
-        aria-label="确认空间名称"
+        placeholder="输入Agent 全名以确认"
+        aria-label="确认 Agent 名称"
       />
       <div class="dialog-actions">
         <button data-close>返回</button
-        ><button id="deleteWorkspace" class="danger">删除工作空间</button>
+        ><button id="deleteWorkspace" class="danger">删除 Agent</button>
       </div>
     </dialog>
     <dialog id="historyDialog">

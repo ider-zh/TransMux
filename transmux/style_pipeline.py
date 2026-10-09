@@ -299,18 +299,20 @@ async def extract(worker, job, run, corpus, style):
     findings = list(grouped.values())
     atomic_write(run / 'style-observations.json', json.dumps(findings, ensure_ascii=False, indent=2))
     rules = await synthesize(worker, job, run, findings, requirements['content'], prefix, identity, cache_dir)
+    if style_only:
+        if not rules:
+            raise NeedsAttention('未提取到有出处的风格规则，请补充参考文档')
+        count = store.rows("SELECT COUNT(DISTINCT root) AS n FROM human_reviews WHERE project=? AND kind='style'", (pid,))[0]['n']
+        name = f"翻译风格 {count + 1} · " + (' / '.join(f['name'] for f in corpus))[:160]
+        review = store.create_style_rules(pid, name, rules, jid)
+        return {'message': '结构化风格规则已提取，请逐条审核后生成翻译风格 Markdown',
+                'review_id': review['id'], 'file_id': review['file_id']}
     candidate = ('# Translation Style' if target == 'en' else '# 翻译风格') + '\n\n'
     candidate += '\n\n'.join('- ' + row['text'] for row in rules) if rules else INITIAL_STYLES[target].split('\n', 1)[1].strip()
     error = guidance_language_error(candidate, target, required=True)
     atomic_write(run / 'proposed-style.md', candidate)
     if error:
         raise NeedsAttention('汇总风格语言校验失败：' + error)
-    if style_only:
-        count = store.rows("SELECT COUNT(DISTINCT root) AS n FROM human_reviews WHERE project=? AND kind='style'", (pid,))[0]['n']
-        name = f"翻译风格 {count + 1} · " + (' / '.join(f['name'] for f in corpus))[:160]
-        review = store.create_style(pid, name, candidate, jid)
-        return {'message': '翻译风格已生成，等待人工审核；未提取术语或人名',
-                'review_id': review['id'], 'file_id': review['file_id']}
     if store.snapshot_config(pid, 'style')['revision'] != revision(style):
         raise NeedsAttention(f'提取期间风格已被编辑，候选保存在 runs/{jid}/；未覆盖，重试会复用缓存')
     documents = {'style': candidate}

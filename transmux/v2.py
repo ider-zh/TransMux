@@ -3,6 +3,7 @@ import asyncio
 import hashlib
 import json
 import os
+import re
 import shutil
 import signal
 from pathlib import Path
@@ -26,14 +27,27 @@ SKILLS = Path(__file__).parent / 'skills'
 CONFIGS = ('style', 'requirements', 'terms', 'mappings', 'people')
 YES = {'是', '是的', '好', '好的', '可以', 'yes', 'ok', '确认', '修改'}
 TEMPLATES = [
-    {'id': 'style', 'title': '提取翻译风格', 'prompt': '请从所选参考语料中学习翻译风格，生成独立的待审核风格，不提取关键词、术语或人名。'},
-    {'id': 'glossary', 'title': '整理对照词表', 'prompt': '请将上传文档中的原文与译文对应关系整理为可供翻译使用的 Markdown 对照词表，保留适用语境，不补造未提供的对照。'},
-    {'id': 'translate', 'title': '翻译文档', 'prompt': '请遵照工作区的翻译风格，翻译所选文档并完成审校。如有已审核对照词表，请按所选词表执行。'},
-    {'id': 'layout', 'title': '文档排版', 'prompt': '请按所选期刊版式排版文档，保留正文内容，并标明需要补充的文献信息。'},
-    {'id': 'factcheck', 'title': '事实核查', 'prompt': '请通过外部来源核查文档中的事实，生成带来源的核查报告。'}]
+    {'id': 'style', 'title': '学习', 'prompt': '请从所选参考语料中学习翻译风格，生成独立的待审核风格，不提取关键词、术语或人名。'},
+    {'id': 'translate', 'title': '翻译', 'prompt': '请遵照所选翻译风格和已审核专有名词表，翻译所选文档并完成审校。'},
+    {'id': 'layout', 'title': '排版', 'prompt': '请按所选版式排版文档，保留正文内容，并标明需要补充的文献信息。'},
+    {'id': 'consistency', 'title': '一致性检查', 'prompt': '请对照原文与译文检查漏译、误译，以及术语、人名和风格的一致性，生成核查报告，不修改文档。'},
+    {'id': 'glossary', 'title': '上传专有名词表', 'prompt': '请将上传文档中的专有名词及其译文整理为可供翻译使用的对照词表，保留适用语境，不补造未提供的对照。'}]
+
 
 
 class WorkspaceStore(ReviewStore, Store):
+    def __init__(self, root):
+        super().__init__(root)
+        # Existing artifacts acquire pending reviews once; approval is never inferred.
+        for file in self.rows("SELECT f.* FROM files f LEFT JOIN human_reviews r ON r.file_id=f.id WHERE f.kind IN ('typeset','report') AND r.id IS NULL"):
+            if file['kind'] == 'typeset' and file['name'].endswith('.json'):
+                continue
+            try:
+                self.download_path(file['project'], file)
+            except ValueError:
+                continue
+            self.register_review(file['project'], 'layout' if file['kind'] == 'typeset' else 'report', file['name'], file['id'])
+
     def create_project(self, *args, **kwargs):
         project = super().create_project(*args, **kwargs)
         pid = project['id']
@@ -165,6 +179,9 @@ class WorkspaceWorker(Worker):
         if kind in ('layout', 'factcheck'):
             for fid in payload['file_ids']:
                 self.store.require_approved_input(pid, fid)
+        if kind == 'consistency':
+            from .consistency import check
+            return await check(self, job, payload, run)
         if kind == 'layout':
             return await self.typeset(job, payload, run)
         if kind == 'factcheck':
@@ -178,7 +195,9 @@ class WorkspaceWorker(Worker):
     def publish_text(self, pid, run, name, text, kind='report'):
         path = run / name
         atomic_write(path, text)
-        return self.store.add_file(pid, name, kind, path)
+        fid = self.store.add_file(pid, name, kind, path)
+        self.store.register_review(pid, 'report', name, fid, job=run.name)
+        return fid
 
     async def factcheck(self, job, payload, run):
         pid, jid = job['project'], job['id']
@@ -273,6 +292,7 @@ class WorkspaceWorker(Worker):
     async def chat(self, job, payload, run):
         pid, jid = job['project'], job['id']
         if payload.get('review_id'):
+            self.phase(job, 'revising', '修订中', '正在根据修改要求生成新的待审核版本')
             review = self.store.review(pid, payload['review_id'])
             if review['kind'] == 'glossary':
                 from .glossary_documents import ENTRY_SCHEMA
@@ -283,6 +303,29 @@ class WorkspaceWorker(Worker):
                     json.dumps({'entries': json.loads(review['entries']), 'target_language': self.store.project(pid)['target_language']}, ensure_ascii=False), ENTRY_SCHEMA)
                 new = self.store.create_glossary(pid, review['name'], response['entries'], jid, review['id'])
                 return {'message': '对照词表修订已生成，等待人工审核', 'review_id': new['id'], 'file_id': new['file_id']}
+            if review['kind'] == 'style' and review['entries']:
+                from .languages import guidance_language_error
+                existing = json.loads(review['entries'])
+                evidence = [e for rule in existing for e in rule['evidence']]
+                evidence.append({'source': '用户修改指令', 'paragraph': 1, 'quote': payload['message']})
+                response = await self.runner.run(pid, jid,
+                    'Revise the structured translation style rules according to the user request. '
+                    'Return complete rules in the target language, each with 1-based evidence_ids from the supplied evidence. '
+                    'Preserve source attribution; cite the user instruction for user-requested new rules. Do not extract terms or people.\n' +
+                    json.dumps({'rules': existing, 'evidence': evidence, 'request': payload['message'],
+                                'target_language': self.store.project(pid)['target_language']}, ensure_ascii=False),
+                    object_schema({'rules': {'type': 'array', 'items': object_schema({'text': {'type': 'string'},
+                        'evidence_ids': {'type': 'array', 'items': {'type': 'integer'}}})}}))
+                rules = []
+                for rule in response['rules']:
+                    ids = rule['evidence_ids']
+                    if not ids or any(type(i) is not int or not 1 <= i <= len(evidence) for i in ids):
+                        raise NeedsAttention('修订规则缺少有效出处')
+                    if guidance_language_error(rule['text'], self.store.project(pid)['target_language'], required=True):
+                        raise NeedsAttention('修订规则语言不符合目标语言')
+                    rules.append({'text': rule['text'], 'evidence': [evidence[i - 1] for i in ids]})
+                new = self.store.create_style_rules(pid, review['name'], rules, jid, review['id'])
+                return {'message': '风格规则修订已生成，请逐条审核', 'review_id': new['id'], 'file_id': new['file_id']}
             if review['kind'] == 'style':
                 answer = await self.runner.run(pid, jid,
                     'Revise only this translation style according to the user request. Return the complete style in the project target language. '
@@ -346,9 +389,35 @@ class WorkspaceWorker(Worker):
         from .citations import format_citations
         return await format_citations(self, job, path, payload, details)
 
+    async def semantic_layout(self, job, source, output, template):
+        from .semantic_layout import analyze, render
+        plan = await analyze(self, job, source, template)
+        self.phase(job, 'semantic_render', '渲染语义排版与引文', '按首次出现顺序编号；未匹配文献保留在参考文献末尾')
+        await self.blocking(render, source, output, plan)
+        atomic_write(self.store.workspace(job['project']) / 'runs' / job['id'] / 'semantic-rendered.json', json.dumps(plan, ensure_ascii=False, indent=2))
+        return plan
+
     async def typeset(self, job, payload, run):
         pid = job['project']
         selected = self.store.file(pid, payload['file_ids'][0])
+        # Prefer the original upload's title when typesetting a translated version.
+        title_file = selected
+        previous = self.store.review_for_file(pid, selected['id'])
+        seen = set()
+        while True:
+            comparison = self.store.rows('SELECT source_file FROM comparisons WHERE project=? AND file=?',
+                                         (pid, title_file['id']))
+            if comparison:
+                title_file = self.store.file(pid, comparison[0]['source_file'])
+                break
+            if not previous or not previous.get('parent') or previous['id'] in seen:
+                break
+            seen.add(previous['id'])
+            previous = self.store.review(pid, previous['parent'])
+            title_file = self.store.file(pid, previous['file_id'])
+        title = re.sub(r'[\\/:*?"<>|\x00-\x1f]', '_', Path(title_file['name']).stem).strip(' .') or '未命名文档'
+        # Keep room for template and artifact suffixes within filesystem byte limits.
+        title = title.encode('utf-8')[:150].decode('utf-8', errors='ignore')
         source = self.store.download_path(pid, selected)
         if source.suffix.lower() != '.docx':
             docx = run / 'manuscript.docx'
@@ -365,11 +434,14 @@ class WorkspaceWorker(Worker):
         root = self.store.root / 'exports' / pid / result['export_id']
         files = []
         for path in root.iterdir():
-            if path.name not in ('document.docx', 'document.pdf', 'manifest.json'):
+            if path.name not in ('document.docx', 'document.pdf', 'manifest.json', 'layout-report.md'):
                 continue
-            copy = run / (payload['template'] + '-' + path.name)
+            copy = run / (title + '-' + payload['template'] + '-' + path.name)
             shutil.copyfile(path, copy)
-            files.append(self.store.add_file(pid, copy.name, 'typeset', copy))
+            fid = self.store.add_file(pid, copy.name, 'typeset', copy)
+            if path.suffix != '.json':
+                self.store.register_review(pid, 'layout_report' if path.name == 'layout-report.md' else 'layout', copy.name, fid, job=job['id'])
+            files.append(fid)
         result['file_ids'] = files
         return result
 
@@ -433,11 +505,12 @@ def numbered_batches(blocks, limit=12000):
 
 
 class MessageInput(Input):
-    kind: Literal['chat', 'style', 'glossary', 'translate', 'layout', 'factcheck'] = 'chat'
+    kind: Literal['chat', 'style', 'glossary', 'translate', 'layout', 'factcheck', 'consistency'] = 'chat'
     message: str = Field(default='', max_length=20000)
     file_ids: list[str] = Field(default_factory=list, max_length=20)
     glossary_ids: list[str] = Field(default_factory=list, max_length=5)
-    template: Literal['original', 'jcst', 'ieee-access'] = 'original'
+    template: Literal['original', 'jcst', 'jcst-submit', 'ieee-access'] = 'original'
+    consistency_source_id: str | None = None
     report_job: str | None = None
     review_id: str | None = None
     style_version_id: str | None = None
@@ -487,9 +560,25 @@ def configure(app):
         app.state.store.project(pid)
         return app.state.store.rows('SELECT id,project,kind,root,parent,version,name,file_id,status,job,style_id,glossary_id,created,approved FROM human_reviews WHERE project=? ORDER BY created DESC', (pid,))
 
+    class ReviewApproval(Input):
+        selected_rule_ids: list[str] | None = None
+
     @app.post('/api/projects/{pid}/reviews/{rid}/approve')
-    async def approve(pid: str, rid: str):
-        return app.state.store.approve_review(pid, rid)
+    async def approve(pid: str, rid: str, body: ReviewApproval | None = None):
+        return app.state.store.approve_review(pid, rid, body.selected_rule_ids if body else None)
+
+    @app.post('/api/projects/{pid}/reviews/{rid}/ignore')
+    async def ignore(pid: str, rid: str):
+        return app.state.store.ignore_review(pid, rid)
+
+    @app.post('/api/projects/{pid}/reviews/{rid}/restore')
+    async def restore_review(pid: str, rid: str):
+        return app.state.store.ignore_review(pid, rid, restore=True)
+
+    @app.get('/api/projects/{pid}/usage')
+    async def usage(pid: str):
+        from .usage import summary
+        return summary(app.state.store, pid)
 
     @app.get('/api/projects/{pid}/reviews/{rid}')
     async def review_version(pid: str, rid: str):
@@ -506,6 +595,8 @@ def configure(app):
         ids = list(dict.fromkeys(body.file_ids))
         for fid in ids + body.glossary_ids:
             store.file(pid, fid)
+        if body.consistency_source_id:
+            store.file(pid, body.consistency_source_id)
         kind = body.kind
         payload = body.model_dump(exclude={'kind'})
         if kind == 'chat' and body.message.strip().lower().rstrip('。.!！') in YES and not ids:
@@ -532,13 +623,19 @@ def configure(app):
             if ids and ids != [review['file_id']]:
                 raise ValueError('审核对象与附加文档不一致')
             ids = [review['file_id']] if review['kind'] == 'translation' else []
-        if kind in ('layout', 'factcheck') and not ids:
-            latest = store.latest_approved_translation(pid)
-            ids = [latest] if latest else []
-        if kind in ('style', 'glossary', 'translate', 'layout', 'factcheck') and not ids:
+        if kind in ('style', 'glossary', 'translate', 'layout', 'factcheck', 'consistency') and not ids:
             raise ValueError('请附加或明确选择本次处理的文档')
-        if kind in ('glossary', 'layout', 'factcheck') and len(ids) != 1:
+        if kind in ('glossary', 'layout', 'factcheck', 'consistency') and len(ids) != 1:
             raise ValueError('本次任务请选择一份文档')
+        for fid in ids + body.glossary_ids + ([body.consistency_source_id] if body.consistency_source_id else []):
+            selected = store.file(pid, fid)
+            if not store.download_path(pid, selected).is_file():
+                raise ValueError('文件已不存在，请重新上传或附加：' + selected['name'])
+        if kind == 'consistency':
+            if body.consistency_source_id == ids[0]:
+                raise ValueError('原文和译文请选择不同文件')
+            if not body.consistency_source_id and not store.rows('SELECT file FROM comparisons WHERE project=? AND file=?', (pid, ids[0])):
+                raise ValueError('该文档没有原译对照，请在任务选项中选择原文')
         if kind == 'chat' and not body.message:
             raise ValueError('请输入内容')
         payload.update(file_ids=ids, use_rag=False, max_review_rounds=3, external_research=kind == 'factcheck')

@@ -48,7 +48,9 @@ def extract(source, destination):
         doc = etree.fromstring(archive.read('word/document.xml'))
         styles = etree.fromstring(archive.read('word/styles.xml'))
     by_id = {s.get(W+'styleId'): s for s in styles.findall(W+'style')}
-    default = next(s for s in by_id.values() if s.get(W+'default') == '1' and s.get(W+'type') == 'paragraph')
+    default = next((s for s in by_id.values() if s.get(W+'default') in ('1', 'true') and s.get(W+'type') == 'paragraph'), by_id.get('Normal'))
+    if default is None:
+        raise ValueError('No default or Normal paragraph style')
 
     def merge(result, element):
         if element is not None:
@@ -71,7 +73,7 @@ def extract(source, destination):
     rules = {}
     for role, (index, prefix, size, bold, italic) in SAMPLES.items():
         p = paragraphs[index]
-        text = ''.join(p.itertext())
+        text = ''.join(t.text or '' for t in p.iter(W+'t'))
         if not text.startswith(prefix):
             raise ValueError(f'Official template changed at paragraph {index}; review role {role}')
         style = p.find(W+'pPr/'+W+'pStyle')
